@@ -1457,11 +1457,7 @@ accessStorage addr slot continue = do
         assign #result Nothing
         modifying (#cache % #fetched % ix a % #storage) (writeDeepStorage (Lit s) (Lit x))
         modifying (#env % #contracts % ix (LitAddr a) % #storage) (writeDeepStorage (Lit s) (Lit x))
-        case eqT @t @Concrete of
-          Just Refl -> continue (Lit x)
-          Nothing -> do
-            contr <- fromJust <$> gets (preview (#env % #contracts % ix (LitAddr a)))
-            continue $ SLoad (Lit s) (contr ^. #storage)
+        continue $ Lit x
 
 accessTStorage
   :: VMOps t => Expr EAddr
