@@ -1436,8 +1436,7 @@ accessStorage addr slot continue = do
           _ -> rpcCall c slotConc
         Nothing -> rpcCall c slotConc
     Nothing ->
-      fetchAccount addr $ \_ ->
-        accessStorage addr slot continue
+      fetchAccount addr $ \_ -> accessStorage addr slot continue
   where
       rpcCall c slotConc = fetchAccount addr $ \_ ->
         if c.external
@@ -1454,9 +1453,9 @@ accessStorage addr slot continue = do
           continue $ Lit 0
       mkQuery :: Addr -> W256 -> EVM t s ()
       mkQuery a s = query $ PleaseFetchSlot a s $ \x -> do
-        assign #result Nothing
         modifying (#cache % #fetched % ix a % #storage) (writeDeepStorage (Lit s) (Lit x))
         modifying (#env % #contracts % ix (LitAddr a) % #storage) (writeDeepStorage (Lit s) (Lit x))
+        assign #result Nothing
         continue $ Lit x
 
 accessTStorage

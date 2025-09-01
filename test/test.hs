@@ -1563,7 +1563,6 @@ tests = testGroup "hevm"
                 }
               }
             |]
-        a <- reachableUserAsserts c (Just $ Sig "f()" [])
         Right _ <- reachableUserAsserts c (Just $ Sig "f()" [])
         liftIO $ putStrLn "no reachable assertion violations"
       ,
