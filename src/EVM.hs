@@ -1442,15 +1442,21 @@ accessStorage addr slot continue = do
         if c.external
         then forceConcreteAddr addr "cannot read storage from symbolic addresses via rpc" $ \addr' ->
           forceConcrete slotConc "cannot read symbolic slots via RPC" $ \slot' -> do
-            -- check if the slot is cached
             use (#env % #contracts % at (LitAddr addr')) >>= \case
               Nothing -> internalError $ "contract addr " <> show addr' <> " marked external not found in cache"
+              -- At this point, we know the contract is external and in the underlying storage
+              -- is concrete. Check if the slot has already been fetched
               Just contr -> if concStoreContains (Lit slot') contr.storage
                 then continue $ SLoad (Lit slot') contr.storage
                 else mkQuery addr' slot'
         else do
+          -- Symbolic address that cannot be cajoled/solved into a concrete one
+          -- We cannot query the underlying storage, as we don't know which one to query
+          -- So we store and return 0, as it is the only sound option
           modifying (#env % #contracts % ix addr % #storage) (writeStorage slot (Lit 0))
           continue $ Lit 0
+      -- Write to the underlying Concrete storage, so all writes on top are preserved. The value
+      -- was _always_ what has been fetched, and so modifications must be preserved
       mkQuery :: Addr -> W256 -> EVM t s ()
       mkQuery a s = query $ PleaseFetchSlot a s $ \x -> do
         modifying (#cache % #fetched % ix a % #storage) (writeDeepStorage (Lit s) (Lit x))
