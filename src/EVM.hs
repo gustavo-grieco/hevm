@@ -11,7 +11,7 @@ import Optics.State.Operators
 import Optics.Zoom
 
 import EVM.ABI
-import EVM.Expr (readStorage, concStoreContains, writeDeepStorage, writeStorage, readByte, readWord, writeWord,
+import EVM.Expr (readStorage, concStoreContains, writeStorage, readByte, readWord, writeWord,
   writeByte, bufLength, indexWord, readBytes, copySlice, wordToAddr, maybeLitByteSimp, maybeLitWordSimp, maybeLitAddrSimp)
 import EVM.Expr qualified as Expr
 import EVM.FeeSchedule (FeeSchedule (..))
@@ -1455,12 +1455,10 @@ accessStorage addr slot continue = do
           -- So we store and return 0, as it is the only sound option
           modifying (#env % #contracts % ix addr % #storage) (writeStorage slot (Lit 0))
           continue $ Lit 0
-      -- Write to the underlying Concrete storage, so all writes on top are preserved. The value
-      -- was _always_ what has been fetched, and so modifications must be preserved
       mkQuery :: Addr -> W256 -> EVM t s ()
       mkQuery a s = query $ PleaseFetchSlot a s $ \x -> do
-        modifying (#cache % #fetched % ix a % #storage) (writeDeepStorage (Lit s) (Lit x))
-        modifying (#env % #contracts % ix (LitAddr a) % #storage) (writeDeepStorage (Lit s) (Lit x))
+        modifying (#cache % #fetched % ix a % #storage) (writeStorage (Lit s) (Lit x))
+        modifying (#env % #contracts % ix (LitAddr a) % #storage) (writeStorage (Lit s) (Lit x))
         assign #result Nothing
         continue $ Lit x
 
