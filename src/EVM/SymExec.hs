@@ -697,13 +697,13 @@ verifyInputs solvers opts fetcher preState maybepost = do
   let call = mconcat ["prefix 0x", getCallPrefix preState.state.calldata]
   when conf.debug $ liftIO $ putStrLn $ "   Exploring call " <> call
 
-  exprInter <- interpret fetcher opts.iterConf preState runExpr
-  when conf.dumpExprs $ liftIO $ T.writeFile "unsimplified.expr" (formatExpr exprInter)
-  let expr = if conf.simp then (Expr.simplify exprInter) else exprInter
-      flattened = flattenExpr expr
-  when conf.dumpExprs $ liftIO $ do
-    T.writeFile "simplified.expr" (formatExpr expr)
-    T.writeFile "simplified-conc.expr" (formatExpr $ Expr.simplify $ mapExpr Expr.concKeccakOnePass expr)
+  expr <- interpret fetcher opts.iterConf preState runExpr
+  when conf.dumpExprs $ liftIO $ T.writeFile "unsimplified.expr" (formatExpr expr)
+  let flattened = flattenExpr expr
+  when (conf.dumpExprs && conf.simp) $ liftIO $ do
+    let exprSimplified = Expr.simplify expr
+    T.writeFile "simplified.expr" (formatExpr exprSimplified)
+    T.writeFile "simplified-conc.expr" (formatExpr $ Expr.simplify $ mapExpr Expr.concKeccakOnePass exprSimplified)
 
   let partials = getPartials flattened
   when conf.debug $ liftIO $ do
