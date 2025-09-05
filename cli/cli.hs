@@ -823,6 +823,7 @@ unitTestOptions testOpts cOpts solvers buildOutput = do
     , dapp = srcInfo
     , ffiAllowed = testOpts.ffi
     , checkFailBit = cOpts.assertionType == DSTest
+    , loopHeuristic = cOpts.loopDetectionHeuristic
     }
 parseInitialStorage :: InitialStorage -> BaseState
 parseInitialStorage Empty = EmptyBase
