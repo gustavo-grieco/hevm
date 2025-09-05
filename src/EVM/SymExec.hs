@@ -404,7 +404,7 @@ interpret fetcher iterConf vm =
                     (r, vm') <- case simpProps of
                       [PBool False] -> liftIO $ stToIO $ runStateT (continue (Case False)) vm
                       [] -> liftIO $ stToIO $ runStateT (continue (Case True)) vm
-                      _ -> liftIO $ stToIO $ runStateT (continue UnknownBranch) vm {exploreDepth = vm.exploreDepth+1}
+                      _ -> liftIO $ stToIO $ runStateT (continue UnknownBranch) vm
                     interpret fetcher iterConf vm' (k r)
           _ -> performQuery
 
