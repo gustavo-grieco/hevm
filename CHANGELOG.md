@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   more Keccak equalities.
 - Faster word256Bytes and word160Bytes functions to help concrete execution
   performance
+- We no longer increment branch depth twice when branching both ways
 - We now take into account loop heuristic setting for `test`
 
 ## Changed

@@ -3090,7 +3090,7 @@ instance VMOps Symbolic where
   -- numBytes allows us to specify how many bytes of the returned value is relevant
   -- if it's e.g.a JUMP, only 2 bytes can be relevant. This allows us to avoid
   -- getting solutions that are nonsensical
-  manySolutions depthLimit ewordExpr numBytes continue = do
+  manySolutions maxDepth ewordExpr numBytes continue = do
     pathconds <- use #constraints
     vm <- get
     query $ PleaseGetSols ewordExpr numBytes pathconds $ \case
@@ -3104,7 +3104,7 @@ instance VMOps Symbolic where
             assign #result Nothing
             pushTo #constraints $ Expr.simplifyProp (ewordExpr .== (Lit val))
             continue $ Just val
-          _ -> runAll depthLimit vm.exploreDepth $ PleaseRunAll ewordExpr (map Lit concVals) runAllPaths
+          _ -> runAll maxDepth vm.exploreDepth $ PleaseRunAll ewordExpr (map Lit concVals) runAllPaths
       Nothing -> do
         assign #result Nothing
         continue Nothing
