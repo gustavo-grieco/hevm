@@ -17,6 +17,7 @@ import EVM.Fetch (RpcInfo)
 import EVM.Solidity
 import EVM.Solvers
 import EVM.UnitTest
+import EVM.SymExec qualified as SymExec
 import Control.Monad.ST (RealWorld)
 import Control.Monad.IO.Unlift
 import Control.Monad.Catch (MonadMask)
@@ -65,6 +66,7 @@ testOpts solvers root buildOutput match maxIter allowFFI rpcinfo = do
     , dapp = srcInfo
     , ffiAllowed = allowFFI
     , checkFailBit = False
+    , loopHeuristic = SymExec.StackBased
     }
 
 processFailedException :: String -> String -> [String] -> Int -> IO a
