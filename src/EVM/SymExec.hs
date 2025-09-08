@@ -406,7 +406,7 @@ interpret fetcher iterConf vm =
                     (r, vm') <- case simpProps of
                       [PBool False] -> liftIO $ stToIO $ runStateT (continue (Case False)) vm
                       [] -> liftIO $ stToIO $ runStateT (continue (Case True)) vm
-                      _ -> liftIO $ stToIO $ runStateT (continue UnknownBranch) vm {exploreDepth = vm.exploreDepth+1}
+                      _ -> liftIO $ stToIO $ runStateT (continue UnknownBranch) vm
                     interpret fetcher iterConf vm' (k r)
           _ -> performQuery
 
@@ -699,13 +699,13 @@ verifyInputs solvers opts fetcher preState maybepost = do
   let call = mconcat ["prefix 0x", getCallPrefix preState.state.calldata]
   when conf.debug $ liftIO $ putStrLn $ "   Exploring call " <> call
 
-  exprInter <- interpret fetcher opts.iterConf preState runExpr
-  when conf.dumpExprs $ liftIO $ T.writeFile "unsimplified.expr" (formatExpr exprInter)
-  let expr = if conf.simp then (Expr.simplify exprInter) else exprInter
-      flattened = flattenExpr expr
-  when conf.dumpExprs $ liftIO $ do
-    T.writeFile "simplified.expr" (formatExpr expr)
-    T.writeFile "simplified-conc.expr" (formatExpr $ Expr.simplify $ mapExpr Expr.concKeccakOnePass expr)
+  expr <- interpret fetcher opts.iterConf preState runExpr
+  when conf.dumpExprs $ liftIO $ T.writeFile "unsimplified.expr" (formatExpr expr)
+  let flattened = flattenExpr expr
+  when (conf.dumpExprs && conf.simp) $ liftIO $ do
+    let exprSimplified = Expr.simplify expr
+    T.writeFile "simplified.expr" (formatExpr exprSimplified)
+    T.writeFile "simplified-conc.expr" (formatExpr $ Expr.simplify $ mapExpr Expr.concKeccakOnePass exprSimplified)
 
   let partials = getPartials flattened
   when conf.debug $ liftIO $ do
@@ -736,8 +736,12 @@ verifyInputs solvers opts fetcher preState maybepost = do
     getCallPrefix :: Expr Buf -> String
     getCallPrefix (WriteByte (Lit 0) (LitByte a) (WriteByte (Lit 1) (LitByte b) (WriteByte (Lit 2) (LitByte c) (WriteByte (Lit 3) (LitByte d) _)))) = mconcat $ map (printf "%02x") [a,b,c,d]
     getCallPrefix _ = "unknown"
-    toProps leaf vm post = let keccakConstraints = map (\(bs, k)-> PEq (Keccak (ConcreteBuf bs)) (Lit k)) (Set.toList vm.keccakPreImgs)
-     in PNeg (post preState leaf) : vm.constraints <> extractProps leaf <> keccakConstraints
+    toProps leaf vm post = let
+      postCondition = post preState leaf
+      keccakConstraints = map (\(bs, k)-> PEq (Keccak (ConcreteBuf bs)) (Lit k)) (Set.toList vm.keccakPreImgs)
+     in case postCondition of
+      PBool True -> [PBool False]
+      _ -> PNeg postCondition : vm.constraints <> extractProps leaf <> keccakConstraints
 
     canBeSat (a, _) = case a of
         [PBool False] -> False

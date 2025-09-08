@@ -1013,6 +1013,9 @@ tests = testGroup "hevm"
         -- write word and read it at the same offset of 16
         (Lit 0x12)
         (Expr.readWord (Lit 0x20) (WriteWord (Lit 0x20) (Lit 0x12) mempty))
+    , test "read-word-over-write-byte" $ assertEqualM ""
+        (ReadWord (Lit 0x4) (AbstractBuf "abs"))
+        (Expr.readWord (Lit 0x4) (WriteByte (Lit 0x1) (LitByte 0x12) (AbstractBuf "abs")))
     , test "read-word-copySlice-overlap" $ assertEqualM ""
         -- we should not recurse into a copySlice if the read index + 32 overlaps the sliced region
         (ReadWord (Lit 40) (CopySlice (Lit 0) (Lit 30) (Lit 12) (WriteWord (Lit 10) (Lit 0x64) (AbstractBuf "hi")) (AbstractBuf "hi")))
@@ -2153,7 +2156,7 @@ tests = testGroup "hevm"
             let code = case ca.code of
                   RuntimeCode (ConcreteRuntimeCode c') -> c'
                   _ -> internalError "expected concrete code"
-            assertEqualM "balance mismatch" (Var "arg1") ca.balance
+            assertEqualM "balance mismatch" (Var "arg1") (Expr.simplify ca.balance)
             assertEqualM "code mismatch" (stripBytecodeMetadata a) (stripBytecodeMetadata code)
             assertEqualM "nonce mismatch" (Just 1) ca.nonce
           _ -> assertBoolM "too many success nodes!" False
@@ -4736,6 +4739,16 @@ tests = testGroup "hevm"
           props = [PEq (Keccak buf2) (Lit 0x123)]
           computes = keccakCompute props [] []
       assertEqualM "Must compute two keccaks" 2 (length computes)
+    , testCase "store-over-concrete-buffer" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0, simp = False}}) $ do
+      let
+        as = AbstractStore (SymAddr "test") Nothing
+        cs = ConcreteStore $ Map.fromList [(0x1,0x2)]
+        e1 = SLoad (Lit 0x1) (SStore (Lit 0x8) (SLoad (Lit 0x40) as) cs)
+        eq = PEq e1 (Lit 0x0)
+      conf <- readConfig
+      let SMT2 _ (CexVars _ _ _ storeReads _ _) _ = fromRight (internalError "Must succeed") (assertProps conf [eq])
+      let expected = Map.singleton (SymAddr "test", Nothing) (Set.singleton (Lit 0x40))
+      assertEqualM "Reads must be properly collected" storeReads expected
   ]
   , testGroup "equivalence-checking"
     [

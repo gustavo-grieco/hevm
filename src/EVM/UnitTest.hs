@@ -13,7 +13,7 @@ import EVM.FeeSchedule (feeSchedule)
 import EVM.Fetch qualified as Fetch
 import EVM.Format
 import EVM.Solidity
-import EVM.SymExec (defaultVeriOpts, symCalldata, verify, extractCex, prettyCalldata, calldataFromCex, panicMsg, VeriOpts(..), flattenExpr, groupIssues, groupPartials, IterConfig(..), defaultIterConf)
+import EVM.SymExec (defaultVeriOpts, symCalldata, verify, extractCex, prettyCalldata, calldataFromCex, panicMsg, VeriOpts(..), flattenExpr, groupIssues, groupPartials, IterConfig(..), defaultIterConf, LoopHeuristic)
 import EVM.Types
 import EVM.Transaction (initTx)
 import EVM.Stepper (Stepper)
@@ -50,17 +50,18 @@ import Data.Vector qualified as V
 import Data.Char (ord)
 
 data UnitTestOptions s = UnitTestOptions
-  { rpcInfo     :: Fetch.RpcInfo
-  , solvers     :: SolverGroup
-  , maxIter     :: Maybe Integer
-  , askSmtIters :: Integer
-  , smtTimeout  :: Maybe Natural
-  , match       :: Text
-  , prefix      :: Text
-  , dapp        :: DappInfo
-  , testParams  :: TestVMParams
-  , ffiAllowed  :: Bool
-  , checkFailBit:: Bool
+  { rpcInfo       :: Fetch.RpcInfo
+  , solvers       :: SolverGroup
+  , maxIter       :: Maybe Integer
+  , askSmtIters   :: Integer
+  , smtTimeout    :: Maybe Natural
+  , match         :: Text
+  , prefix        :: Text
+  , dapp          :: DappInfo
+  , testParams    :: TestVMParams
+  , ffiAllowed    :: Bool
+  , checkFailBit  :: Bool
+  , loopHeuristic :: LoopHeuristic
   }
 
 data TestVMParams = TestVMParams
@@ -110,7 +111,7 @@ writeTrace vm = do
 -- | Generate VeriOpts from UnitTestOptions
 makeVeriOpts :: UnitTestOptions s -> VeriOpts
 makeVeriOpts opts =
-   defaultVeriOpts { iterConf = defaultIterConf {maxIter = opts.maxIter, askSmtIters = opts.askSmtIters }
+   defaultVeriOpts { iterConf = defaultIterConf {maxIter = opts.maxIter, askSmtIters = opts.askSmtIters, loopHeuristic = opts.loopHeuristic}
                    , rpcInfo = opts.rpcInfo
                    }
 
