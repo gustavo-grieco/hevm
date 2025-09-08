@@ -298,7 +298,7 @@ symRun opts@UnitTestOptions{..} vm (Sig testName types) = do
       (True, _, _) -> do
         -- there are counterexamples (and maybe other things, but Cex is most important)
         let x = mapMaybe extractCex results
-        failsToRepro <- getReproFailures testName types (fst cd) (map snd x)
+        failsToRepro <- getReproFailures (Sig testName types) (fst cd) (map snd x)
         validation <- mapM (traverse $ validateCex opts vm) failsToRepro
         when conf.debug $ liftIO $ putStrLn $ "Cex reproduction runs' results are: " <> show validation
         let toPrintData = zipWith (\(a, b) c -> (a, b, c)) x validation
@@ -352,9 +352,9 @@ printWarnings e results testName = do
     forM_ (groupPartials e) $ \(num, str) -> putStrLn $ "      " <> show num <> "x -> " <> str
   putStrLn ""
 
-getReproFailures :: App m => Text -> [AbiType] -> Expr Buf -> [SMTCex] -> m [Err ReproducibleCex]
-getReproFailures testName types cd cexes = do
-  fullCDs <- mapM (\cex -> calldataFromCex cex cd testName types) cexes
+getReproFailures :: App m => Sig -> Expr Buf -> [SMTCex] -> m [Err ReproducibleCex]
+getReproFailures sig@(Sig testName _) cd cexes = do
+  fullCDs <- mapM (\cex -> calldataFromCex cex cd sig) cexes
   pure $ map (\case
     Left err -> Left err
     Right fullCD -> Right $ ReproducibleCex { testName = testName, callData = fullCD}) fullCDs
