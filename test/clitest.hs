@@ -223,6 +223,12 @@ main = do
         (_, stdout, stderr) <- runForgeTest "test/contracts/pass/only-deployed-contracts.sol" ["--only-deployed"]
         stderr `shouldNotContain` "CallStack"
         stdout `shouldContain` "[PASS]"
+      it "only-deployed-contracts-force-addr" $ do
+        (_, stdout, stderr) <- runForgeTest "test/contracts/pass/only-deployed-force-addr.sol" ["--only-deployed"]
+        stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[FAIL]"
+        stdout `shouldContain` "[validated]"
+        stderr `shouldNotContain` "not reproducible"
       it "dump unsolved" $ do
         -- >>> (139487132679483*2347234698674) % 982374892374389278894734
         -- 278198683154907855159120
