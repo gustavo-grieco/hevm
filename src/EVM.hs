@@ -1444,7 +1444,7 @@ accessStorage addr slot continue = do
           forceConcrete slotConc "cannot read symbolic slots via RPC" $ \slot' -> do
             use (#env % #contracts % at (LitAddr addr')) >>= \case
               Nothing -> internalError $ "contract addr " <> show addr' <> " marked external not found in cache"
-              -- At this point, we know the contract is external and in the underlying storage
+              -- At this point, we know the contract is external and the underlying storage
               -- is concrete. Check if the slot has already been fetched
               Just contr -> if concStoreContains (Lit slot') contr.storage
                 then continue $ SLoad (Lit slot') contr.storage
