@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   performance
 - We no longer increment branch depth twice when branching both ways
 - We now take into account loop heuristic setting for `test`
+- Last branch of the ForkMany didn't add a constraint for the value,
+  which meant that any value was possible, leading to potentially
+  wrong CEX-e. Fixed.
 
 ## Changed
 - Updated forge to 1.2.3 and forge-std to 60acb7aa (1.9.7+)
