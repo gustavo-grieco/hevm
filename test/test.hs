@@ -2152,7 +2152,7 @@ tests = testGroup "hevm"
             let code = case ca.code of
                   RuntimeCode (ConcreteRuntimeCode c') -> c'
                   _ -> internalError "expected concrete code"
-            assertEqualM "balance mismatch" (Var "arg1") ca.balance
+            assertEqualM "balance mismatch" (Var "arg1") (Expr.simplify ca.balance)
             assertEqualM "code mismatch" (stripBytecodeMetadata a) (stripBytecodeMetadata code)
             assertEqualM "nonce mismatch" (Just 1) ca.nonce
           _ -> assertBoolM "too many success nodes!" False
