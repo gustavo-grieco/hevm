@@ -24,7 +24,7 @@ import Data.List (foldl')
 
 import Control.Monad (void, when, forM, forM_)
 import Control.Monad.ST (RealWorld, ST, stToIO)
-import Control.Monad.State.Strict (execState, get, put, liftIO)
+import Control.Monad.State.Strict (execState, get, put, liftIO, runStateT)
 import Optics.Core
 import Optics.State
 import Optics.State.Operators
@@ -48,7 +48,6 @@ import System.IO (hFlush, stdout)
 import Witch (unsafeInto, into)
 import Data.Vector qualified as V
 import Data.Char (ord)
-import Control.Monad.State.Strict (runStateT)
 
 data UnitTestOptions s = UnitTestOptions
   { rpcInfo     :: Fetch.RpcInfo
@@ -181,7 +180,6 @@ validateCex uTestOpts vm repCex = do
     Stepper.evm get
 
   (res, (vm3, vmtrace)) <- runStateT (Tracing.interpretWithTrace (Fetch.oracle utoConc.solvers utoConc.rpcInfo) Stepper.execFully) (vm2, [])
-  -- res <- Stepper.interpret (Fetch.oracle utoConc.solvers utoConc.rpcInfo) vm2 Stepper.execFully
   when conf.debug $ liftIO $ do
     putStrLn $ "vm step trace: " <> unlines (map show vmtrace)
     putStrLn $ "vm res: " <> show res
