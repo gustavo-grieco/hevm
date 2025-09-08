@@ -244,11 +244,11 @@ dsTestFailedConc store = case Map.lookup cheatCode store of
 -- Define the thread spawner for symbolic tests
 -- Returns tuple of (No Cex, No warnings)
 symRun :: App m => UnitTestOptions RealWorld -> VM Concrete RealWorld -> Sig -> m (Bool, Bool)
-symRun opts@UnitTestOptions{..} vm (Sig testName types) = do
-    let callSig = testName <> "(" <> (Text.intercalate "," (map abiTypeSolidity types)) <> ")"
-    liftIO $ putStrLn $ "\x1b[96m[RUNNING]\x1b[0m " <> Text.unpack callSig
-    cd <- symCalldata callSig types [] (AbstractBuf "txdata")
-    let shouldFail = "proveFail" `isPrefixOf` callSig
+symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) = do
+    let cs = callSig sig
+    liftIO $ putStrLn $ "\x1b[96m[RUNNING]\x1b[0m " <> Text.unpack cs
+    cd <- symCalldata cs types [] (AbstractBuf "txdata")
+    let shouldFail = "proveFail" `isPrefixOf` cs
 
     -- define postcondition depending on `shouldFail`
     let

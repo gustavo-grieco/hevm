@@ -1120,9 +1120,8 @@ prettyBuf (ConcreteBuf bs) = formatBinary bs
 prettyBuf b = internalError $ "Unexpected symbolic buffer:\n" <> T.unpack (formatExpr b)
 
 calldataFromCex :: App m => SMTCex -> Expr Buf -> Sig -> m (Err ByteString)
-calldataFromCex cex buf (Sig funName types) = do
-  let fullSig = (funName <> "(" <> T.intercalate "," (map abiTypeSolidity types) <> ")")
-      sigKeccak = keccakSig $ encodeUtf8 fullSig
+calldataFromCex cex buf sig = do
+  let sigKeccak = keccakSig $ encodeUtf8 (callSig sig)
   pure $ (sigKeccak <>) <$> body
   where
     cd = defaultSymbolicValues $ subModel cex buf
