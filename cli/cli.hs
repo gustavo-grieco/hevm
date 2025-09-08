@@ -591,7 +591,6 @@ launchExec cFileOpts execOpts cExecOpts cOpts = do
 vmFromCommand :: App m => CommonOptions -> CommonExecOptions -> CommonFileOptions -> ExecOptions -> m (VM Concrete RealWorld)
 vmFromCommand cOpts cExecOpts cFileOpts execOpts= do
   conf <- readConfig
-  liftIO $ putStrLn $ "vmfromcommand calldata: " <> show calldata
   (miner,ts,baseFee,blockNum,prevRan) <- case cExecOpts.rpc of
     Nothing -> pure (LitAddr 0,Lit 0,0,Lit 0,0)
     Just url -> liftIO $ Fetch.fetchBlockFrom conf block url >>= \case
@@ -706,7 +705,6 @@ symvmFromCommand :: App m =>
   CommonExecOptions -> SymbolicOptions -> CommonFileOptions ->
   (Expr Buf, [Prop]) -> m (VM EVM.Types.Symbolic RealWorld)
 symvmFromCommand cExecOpts sOpts cFileOpts calldata = do
-  liftIO $ putStrLn $ "symvmfromcommand calldata: " <> show calldata
   conf <- readConfig
   (miner,blockNum,baseFee,prevRan) <- case cExecOpts.rpc of
     Nothing -> pure (SymAddr "miner",Lit 0,0,0)
