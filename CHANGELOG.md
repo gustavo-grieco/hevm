@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New empty solver option that simply makes sure that all SMT queries return
   unknown
 - Allow `verifyInputs` to return partial expressions
+- Counterexamples are now validated when running in `hevm test` mode
 - RPC mocking framework that allows users to mock responses from an RPC
   node via `--mock-file FILE.json`. This will improve reliability of
   tests that depend on RPC responses
