@@ -13,17 +13,18 @@ import EVM.FeeSchedule (feeSchedule)
 import EVM.Fetch qualified as Fetch
 import EVM.Format
 import EVM.Solidity
-import EVM.SymExec (defaultVeriOpts, symCalldata, verify, extractCex, prettyCalldata, panicMsg, VeriOpts(..), flattenExpr, groupIssues, groupPartials, IterConfig(..), defaultIterConf, LoopHeuristic)
+import EVM.SymExec (defaultVeriOpts, symCalldata, verify, extractCex, prettyCalldata, calldataFromCex, panicMsg, VeriOpts(..), flattenExpr, groupIssues, groupPartials, IterConfig(..), defaultIterConf, LoopHeuristic)
 import EVM.Types
 import EVM.Transaction (initTx)
 import EVM.Stepper (Stepper)
 import EVM.Stepper qualified as Stepper
+import EVM.Tracing qualified as Tracing
 import EVM.Expr (maybeLitWordSimp)
 import Data.List (foldl')
 
 import Control.Monad (void, when, forM, forM_)
 import Control.Monad.ST (RealWorld, ST, stToIO)
-import Control.Monad.State.Strict (execState, get, put, liftIO)
+import Control.Monad.State.Strict (execState, get, put, liftIO, runStateT)
 import Optics.Core
 import Optics.State
 import Optics.State.Operators
@@ -116,15 +117,15 @@ makeVeriOpts opts =
 
 -- | Top level CLI endpoint for hevm test
 -- | Returns tuple of (No Cex, No warnings)
-unitTest :: App m => UnitTestOptions RealWorld -> Contracts -> m (Bool, Bool)
-unitTest opts (Contracts cs) = do
+unitTest :: App m => UnitTestOptions RealWorld -> BuildOutput -> m (Bool, Bool)
+unitTest opts bo@(BuildOutput (Contracts cs) _) = do
   let unitTestContrs = findUnitTests opts.prefix opts.match $ Map.elems cs
   conf <- readConfig
   when conf.debug $ liftIO $ do
     putStrLn $ "Found " ++ show (length unitTestContrs) ++ " unit test contract(s) to test:"
     let x = map (\(a,b) -> "  --> " <> a <> "  ---  functions: " <> (Text.pack $ show b)) unitTestContrs
     putStrLn $ unlines $ map Text.unpack x
-  results <- concatMapM (runUnitTestContract opts cs) unitTestContrs
+  results <- concatMapM (runUnitTestContract opts bo) unitTestContrs
   when conf.debug $ liftIO $ putStrLn $ "unitTest individual results: " <> show results
   let (firsts, seconds) = unzip results
   pure (and firsts, and seconds)
@@ -160,26 +161,62 @@ initializeUnitTest opts theContract = do
     Left e -> pushTrace (ErrorTrace e)
     _ -> popTrace
 
+validateCex :: App m
+  => UnitTestOptions RealWorld
+  -> VM Concrete RealWorld
+  -> ReproducibleCex
+  -> m Bool
+validateCex uTestOpts vm repCex = do
+  let utoConc = uTestOpts { testParams = uTestOpts.testParams { caller = LitAddr 0xdeadbeef}}
+  conf <- readConfig
+  when conf.debug $ liftIO $ putStrLn $ "Repro running function: " <> show utoConc.testParams.address <>
+    " with caller: " <> show utoConc.testParams.caller <> ", gas: " <> show utoConc.testParams.gasCall <>
+    ", and calldata: " <> show (bsToHex repCex.callData)
+
+  -- Note, we should not need solvers to execute this code
+  vm2 <- Stepper.interpret (Fetch.oracle utoConc.solvers utoConc.rpcInfo) vm $ do
+    Stepper.evm $ do
+      pushTrace (EntryTrace $ "checking cex for function " <> repCex.testName <> " with calldata: " <> (Text.pack $ bsToHex repCex.callData))
+      makeTxCall utoConc.testParams (ConcreteBuf repCex.callData, [])
+    Stepper.evm get
+
+  (res, (vm3, vmtrace)) <- runStateT (Tracing.interpretWithTrace (Fetch.oracle utoConc.solvers utoConc.rpcInfo) Stepper.execFully) (vm2, [])
+  when conf.debug $ liftIO $ do
+    putStrLn $ "vm step trace: " <> unlines (map show vmtrace)
+    putStrLn $ "vm res: " <> show res
+    putStrLn $ "vm res: " <> show vm3.result
+  let shouldFail = "proveFail" `isPrefixOf` repCex.testName
+  let ret = case res of
+              Left err -> case err of
+                (UnrecognizedOpcode 0xfe) -> True
+                (Revert (ConcreteBuf msg)) ->
+                   msg == panicMsg 0x01 ||
+                     let sel = selector "Error(string)"
+                     in (sel `BS.isPrefixOf` msg) && ("assertion failed" `BS.isPrefixOf` (BS.drop (4+32+32) msg))
+                _ -> False
+              Right _ -> utoConc.checkFailBit && (dsTestFailedConc vm3.env.contracts)
+  pure (ret /= shouldFail)
+
 -- Returns tuple of (No Cex, No warnings)
 runUnitTestContract
   :: App m
   => UnitTestOptions RealWorld
-  -> Map Text SolcContract
+  -> BuildOutput
   -> (Text, [Sig])
   -> m [(Bool, Bool)]
 runUnitTestContract
-  opts@(UnitTestOptions {..}) contractMap (name, testSigs) = do
+  opts@(UnitTestOptions {..}) buildOut (name, testSigs) = do
   liftIO $ putStrLn $ "Checking " ++ show (length testSigs) ++ " function(s) in contract " ++ unpack name
 
   -- Look for the wanted contract by name from the Solidity info
-  case Map.lookup name contractMap of
+  case Map.lookup name (getContractsMap buildOut.contracts) of
     Nothing -> internalError $ "Contract " ++ unpack name ++ " not found"
-    Just theContract -> do
+    Just solcContr -> do
       -- Construct the initial VM and begin the contract's constructor
-      vm0 :: VM Concrete RealWorld <- liftIO $ stToIO $ initialUnitTestVm opts theContract
+      vm0 :: VM Concrete RealWorld <- liftIO $ stToIO $ initialUnitTestVm opts solcContr
       vm1 <- Stepper.interpret (Fetch.oracle solvers rpcInfo) vm0 $ do
         Stepper.enter name
-        initializeUnitTest opts theContract
+        initializeUnitTest opts solcContr
         Stepper.evm get
 
       writeTraceDapp dapp vm1
@@ -190,29 +227,38 @@ runUnitTestContract
           tick $ indentLines 3 failOut
           pure [(True, False)]
         Just (VMSuccess _) -> do
-          forM testSigs $ \s -> symRun opts vm1 s
+          forM testSigs $ \s -> symRun opts vm1 s solcContr buildOut.sources
         _ -> internalError "setUp() did not end with a result"
+
+dsTestFailedSym :: Map (Expr 'EAddr) (Expr EContract) -> VM s t -> Prop
+dsTestFailedSym store vm =
+  let testContract = fromMaybe (internalError "test contract not found in state") (Map.lookup vm.state.contract store)
+  in case Map.lookup cheatCode store of
+    Just cheatContract -> Expr.readStorage' (Lit 0x6661696c65640000000000000000000000000000000000000000000000000000) cheatContract.storage .== Lit 1
+    Nothing -> And (Expr.readStorage' (Lit 0) testContract.storage) (Lit 2) .== Lit 2
+
+dsTestFailedConc :: Map (Expr 'EAddr) Contract -> Bool
+dsTestFailedConc store = case Map.lookup cheatCode store of
+  Just cheatContract -> Expr.readStorage' (Lit 0x6661696c65640000000000000000000000000000000000000000000000000000) cheatContract.storage == Lit 1
+  Nothing -> internalError "dsTestFailedConc: expected a cheatCode in the store"
 
 -- Define the thread spawner for symbolic tests
 -- Returns tuple of (No Cex, No warnings)
-symRun :: App m => UnitTestOptions RealWorld -> VM Concrete RealWorld -> Sig -> m (Bool, Bool)
-symRun opts@UnitTestOptions{..} vm (Sig testName types) = do
-    let callSig = testName <> "(" <> (Text.intercalate "," (map abiTypeSolidity types)) <> ")"
-    liftIO $ putStrLn $ "\x1b[96m[RUNNING]\x1b[0m " <> Text.unpack callSig
-    cd <- symCalldata callSig types [] (AbstractBuf "txdata")
-    let shouldFail = "proveFail" `isPrefixOf` callSig
+symRun :: App m => UnitTestOptions RealWorld -> VM Concrete RealWorld -> Sig -> SolcContract -> SourceCache -> m (Bool, Bool)
+symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) solcContr sourceCache = do
+    let cs = callSig sig
+    liftIO $ putStrLn $ "\x1b[96m[RUNNING]\x1b[0m " <> Text.unpack cs
+    cd <- symCalldata cs types [] (AbstractBuf "txdata")
+    let shouldFail = "proveFail" `isPrefixOf` cs
 
     -- define postcondition depending on `shouldFail`
-    let testContract store = fromMaybe (internalError "test contract not found in state") (Map.lookup vm.state.contract store)
-        failed store = case Map.lookup cheatCode store of
-          Just cheatContract -> Expr.readStorage' (Lit 0x6661696c65640000000000000000000000000000000000000000000000000000) cheatContract.storage .== Lit 1
-          Nothing -> And (Expr.readStorage' (Lit 0) (testContract store).storage) (Lit 2) .== Lit 2
+    let
         postcondition = curry $ case shouldFail of
           True -> \(_, post) -> case post of
-            Success _ _ _ store -> if opts.checkFailBit then failed store else PBool False
+            Success _ _ _ store -> if opts.checkFailBit then (dsTestFailedSym store vm) else PBool False
             _ -> PBool True
           False -> \(_, post) -> case post of
-            Success _ _ _ store -> if opts.checkFailBit then PNeg (failed store) else PBool True
+            Success _ _ _ store -> if opts.checkFailBit then PNeg (dsTestFailedSym store vm) else PBool True
             Failure _ _ (UnrecognizedOpcode 0xfe) -> PBool False
             Failure _ _ (Revert msg) -> case msg of
               ConcreteBuf b ->
@@ -242,7 +288,6 @@ symRun opts@UnitTestOptions{..} vm (Sig testName types) = do
       _ -> internalError "cannot be, filtered for failure"
 
     -- display results
-    let t = "the test " <> Text.unpack testName
     let warnings = any Expr.isPartial ends || any isUnknown results || any isError results
     let allReverts = not . (any Expr.isSuccess) $ ends
     let unexpectedAllRevert = allReverts && not shouldFail
@@ -254,8 +299,12 @@ symRun opts@UnitTestOptions{..} vm (Sig testName types) = do
       (True, _, _) -> do
         -- there are counterexamples (and maybe other things, but Cex is most important)
         let x = mapMaybe extractCex results
-        y <- symFailure opts testName (fst cd) types x
-        pure $ "   \x1b[31m[FAIL]\x1b[0m " <> Text.unpack testName <> "\n" <> Text.unpack y
+        failsToRepro <- getReproFailures (Sig testName types) (fst cd) (map snd x)
+        validation <- mapM (traverse $ validateCex opts vm) failsToRepro
+        when conf.debug $ liftIO $ putStrLn $ "Cex reproduction runs' results are: " <> show validation
+        let toPrintData = zipWith (\(a, b) c -> (a, b, c)) x validation
+        txtFails <- symFailure opts testName (fst cd) types toPrintData
+        pure $ "   \x1b[31m[FAIL]\x1b[0m " <> Text.unpack testName <> "\n" <> Text.unpack txtFails
       (_, True, _) -> do
         -- There are errors/unknowns/partials, we fail them
         pure $ "   \x1b[31m[FAIL]\x1b[0m " <> Text.unpack testName <> "\n"
@@ -267,7 +316,8 @@ symRun opts@UnitTestOptions{..} vm (Sig testName types) = do
     when (unexpectedAllRevert && (warnings || (any isCex results))) $ do
       -- if we display a FAILED due to Cex/warnings, we should also mention everything reverted
       liftIO $ putStrLn $ "   \x1b[33m[WARNING]\x1b[0m " <> Text.unpack testName <> " all branches reverted\n"
-    liftIO $ printWarnings ends results t
+    let warnData = Just $ WarningData solcContr sourceCache vm'
+    liftIO $ printWarnings warnData ends results $ "the test " <> Text.unpack testName
     pure (not (any isCex results), not (warnings || unexpectedAllRevert))
     where
       -- The offset of the text is: the selector (4B), the offset value (aligned to 32B), and the length of the string (aligned to 32B)
@@ -295,19 +345,29 @@ symRun opts@UnitTestOptions{..} vm (Sig testName types) = do
               lhs = LitByte (c2w a)
               rhs = Expr.readByte (Lit (fromIntegral n)) b
 --
-printWarnings :: GetUnknownStr b => [Expr 'End] -> [ProofResult a b] -> String -> IO ()
-printWarnings e results testName = do
+printWarnings :: Maybe (WarningData s t) -> GetUnknownStr b => [Expr 'End] -> [ProofResult a b] -> String -> IO ()
+printWarnings warnData e results testName = do
   when (any isUnknown results || any isError results || any Expr.isPartial e) $ do
     putStrLn $ "   \x1b[33m[WARNING]\x1b[0m hevm was only able to partially explore " <> testName <> " due to: ";
     forM_ (groupIssues (filter isError results)) $ \(num, str) -> putStrLn $ "      " <> show num <> "x -> " <> str
     forM_ (groupIssues (filter isUnknown results)) $ \(num, str) -> putStrLn $ "      " <> show num <> "x -> " <> str
-    forM_ (groupPartials e) $ \(num, str) -> putStrLn $ "      " <> show num <> "x -> " <> str
+    forM_ (groupPartials warnData e) $ \(num, str) -> putStrLn $ "      " <> show num <> "x -> " <> str
   putStrLn ""
 
-symFailure :: App m => UnitTestOptions RealWorld -> Text -> Expr Buf -> [AbiType] -> [(Expr End, SMTCex)] -> m Text
-symFailure UnitTestOptions {..} testName cd types failures' = do
+getReproFailures :: App m => Sig -> Expr Buf -> [SMTCex] -> m [Err ReproducibleCex]
+getReproFailures sig@(Sig testName _) cd cexes = do
+  fullCDs <- mapM (\cex -> calldataFromCex cex cd sig) cexes
+  pure $ map (\case
+    Left err -> Left err
+    Right fullCD -> Right $ ReproducibleCex { testName = testName, callData = fullCD}) fullCDs
+
+symFailure :: App m =>
+  UnitTestOptions RealWorld -> Text -> Expr Buf -> [AbiType] ->
+  [(Expr End, SMTCex, Err Bool)] ->
+  m Text
+symFailure UnitTestOptions {..} testName cd types fails = do
   conf <- readConfig
-  pure $ mconcat [ Text.concat $ indentLines 3 . mkMsg conf <$> failures' ]
+  pure $ mconcat [ Text.concat $ indentLines 3 . mkMsg conf <$> fails ]
   where
       showRes = \case
         Success _ _ _ _ -> if "proveFail" `isPrefixOf` testName
@@ -316,8 +376,8 @@ symFailure UnitTestOptions {..} testName cd types failures' = do
         res ->
           let ?context = dappContext (traceContext res)
           in Text.pack $ prettyvmresult res
-      mkMsg conf (leaf, cex) = intercalate "\n" $
-        ["Counterexample:"
+      mkMsg conf (leaf, cex, repro) = intercalate "\n" $
+        ["Counterexample:   " <> reproToText repro
         ,"  calldata: " <> let ?context = dappContext (traceContext leaf)
                            in prettyCalldata cex cd testName types
         ,"  result:   " <> showRes leaf
@@ -326,6 +386,10 @@ symFailure UnitTestOptions {..} testName cd types failures' = do
                            else [Text.unlines [ indentLines 2 (showTraceTree' dapp leaf)]]
       dappContext TraceContext { contracts, labels } =
         DappContext { info = dapp, contracts, labels }
+
+      reproToText :: Err Bool -> Text
+      reproToText (Left err) = "\x1b[33m[error attempting to reproduce: " <> pack err <> "]\x1b[0m"
+      reproToText (Right repro) = if repro then "\x1b[90m[validated]\x1b[0m" else "\x1b[31m[not reproducible]\x1b[0m"
 
 indentLines :: Int -> Text -> Text
 indentLines n s =
@@ -477,19 +541,20 @@ initialUnitTestVm (UnitTestOptions {..}) theContract = do
           & set #balance (Lit testParams.balanceCreate)
   pure $ vm & set (#env % #contracts % at (LitAddr ethrunAddress)) (Just creator)
 
-paramsFromRpc :: Fetch.RpcInfo -> IO TestVMParams
-paramsFromRpc rpcinfo = do
-  (miner,ts,blockNum,ran,limit,base) <- case rpcinfo of
+paramsFromRpc :: forall m . App m => Fetch.RpcInfo -> m TestVMParams
+paramsFromRpc rpcInfo = do
+  (miner,ts,blockNum,ran,limit,base) <- case rpcInfo.blockNumURL of
     Nothing -> pure (SymAddr "miner", Lit 0, Lit 0, 0, 0, 0)
-    Just (block, url) -> Fetch.fetchBlockFrom block url >>= \case
-      Nothing -> internalError "Could not fetch block"
-      Just Block{..} -> pure ( coinbase
-                             , timestamp
-                             , number
-                             , prevRandao
-                             , gaslimit
-                             , baseFee
-                             )
+    Just (Fetch.Latest, url) -> fetch Fetch.Latest url
+    Just (Fetch.BlockNumber block, url) -> case rpcInfo.mockBlock >>= Map.lookup block of
+        Nothing -> fetch (Fetch.BlockNumber block) url
+        Just b ->pure (b.coinbase
+                      , b.timestamp
+                      , b.number
+                      , b.prevRandao
+                      , b.gaslimit
+                      , b.baseFee
+                      )
   let ts' = fromMaybe (internalError "received unexpected symbolic timestamp via rpc") (maybeLitWordSimp ts)
   pure $ TestVMParams
     -- TODO: make this symbolic! It needs some tweaking to the way that our
@@ -511,6 +576,19 @@ paramsFromRpc rpcinfo = do
     , prevrandao = ran
     , chainId = 99
     }
+  where
+    fetch block url = do
+      conf <- readConfig
+      liftIO $ Fetch.fetchBlockFrom conf block url >>= \case
+        Nothing -> internalError "Could not fetch block"
+        Just Block{..} -> pure ( coinbase
+                               , timestamp
+                               , number
+                               , prevRandao
+                               , gaslimit
+                               , baseFee
+                               )
+
 
 tick :: Text -> IO ()
 tick x = Text.putStr x >> hFlush stdout
