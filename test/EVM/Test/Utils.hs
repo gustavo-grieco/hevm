@@ -37,21 +37,20 @@ runSolidityTestCustom testFile match timeout maxIter ffiAllowed rpcinfo projectT
         putStrLn e
         internalError $ "Error compiling test file " <> show testFile <> " in directory "
           <> show root <> " using project type " <> show projectType
-      Right bo@(BuildOutput contracts _) -> do
+      Right buildOut -> do
         withSolvers Bitwuzla 3 1 timeout $ \solvers -> do
-          opts <- liftIO $ testOpts solvers root (Just bo) match maxIter ffiAllowed rpcinfo
-          unitTest opts contracts
+          opts <- testOpts solvers root (Just buildOut) match maxIter ffiAllowed rpcinfo
+          unitTest opts buildOut
 
 -- Returns tuple of (No cex, No warnings)
 runSolidityTest
   :: (MonadMask m, App m)
   => FilePath -> Text -> m (Bool, Bool)
-runSolidityTest testFile match = runSolidityTestCustom testFile match Nothing Nothing True Nothing Foundry
+runSolidityTest testFile match = runSolidityTestCustom testFile match Nothing Nothing True mempty Foundry
 
-testOpts :: SolverGroup -> FilePath -> Maybe BuildOutput -> Text -> Maybe Integer -> Bool -> RpcInfo -> IO (UnitTestOptions RealWorld)
+testOpts :: App m => SolverGroup -> FilePath -> Maybe BuildOutput -> Text -> Maybe Integer -> Bool -> RpcInfo -> m (UnitTestOptions RealWorld)
 testOpts solvers root buildOutput match maxIter allowFFI rpcinfo = do
   let srcInfo = maybe emptyDapp (dappInfo root) buildOutput
-
   params <- paramsFromRpc rpcinfo
 
   pure UnitTestOptions

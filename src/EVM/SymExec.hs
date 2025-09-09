@@ -39,7 +39,7 @@ import EVM.ABI
 import EVM.Effects
 import EVM.Expr qualified as Expr
 import EVM.FeeSchedule (feeSchedule)
-import EVM.Format (formatExpr, formatPartial, formatPartialShort, showVal, indent, formatBinary, formatProp, formatState, formatError)
+import EVM.Format (formatExpr, formatPartial, formatPartialDetailed, showVal, indent, formatBinary, formatProp, formatState, formatError)
 import EVM.SMT qualified as SMT
 import EVM.Solvers
 import EVM.Stepper (Stepper)
@@ -55,6 +55,7 @@ import Options.Generic (ParseField, ParseFields, ParseRecord)
 import Text.Printf (printf)
 import Witch (into, unsafeInto)
 import Data.Text.Encoding (encodeUtf8)
+import EVM.Solidity (WarningData (..))
 
 data LoopHeuristic
   = Naive
@@ -70,11 +71,11 @@ groupIssues results = map (\g -> (into (length g), NE.head g)) grouped
     getIssue _ = Nothing
     grouped = NE.group $ sort $ mapMaybe getIssue results
 
-groupPartials :: [Expr End] -> [(Integer, String)]
-groupPartials e = map (\g -> (into (length g), NE.head g)) grouped
+groupPartials :: Maybe (WarningData s t) -> [Expr End] -> [(Integer, String)]
+groupPartials warnData e = map (\g -> (into (length g), NE.head g)) grouped
   where
     getPartial :: Expr End -> Maybe String
-    getPartial (Partial _ _ reason) = Just $ T.unpack $ formatPartialShort reason
+    getPartial (Partial _ _ reason) = Just $ T.unpack $ formatPartialDetailed warnData reason
     getPartial _ = Nothing
     grouped = NE.group $ sort $ mapMaybe getPartial e
 
@@ -96,16 +97,16 @@ data VeriOpts = VeriOpts
   { iterConf :: IterConfig
   , rpcInfo :: Fetch.RpcInfo
   }
-  deriving (Eq, Show)
+  deriving (Show)
 
 defaultVeriOpts :: VeriOpts
 defaultVeriOpts = VeriOpts
   { iterConf = defaultIterConf
-  , rpcInfo = Nothing
+  , rpcInfo = mempty
   }
 
 rpcVeriOpts :: (Fetch.BlockNumber, Text) -> VeriOpts
-rpcVeriOpts info = defaultVeriOpts { rpcInfo = Just info }
+rpcVeriOpts info = defaultVeriOpts { rpcInfo  = mempty { Fetch.blockNumURL = Just info }}
 
 extractCex :: VerifyResult -> Maybe (Expr End, SMTCex)
 extractCex (Cex c) = Just c
@@ -816,7 +817,7 @@ equivalenceCheck solvers bytecodeA bytecodeB opts calldata create = do
       conf <- readConfig
       let bytecode = if BS.null bs then BS.pack [0] else bs
       prestate <- liftIO $ stToIO $ abstractVM calldata bytecode Nothing create
-      expr <- interpret (Fetch.oracle solvers Nothing) opts.iterConf prestate runExpr
+      expr <- interpret (Fetch.oracle solvers mempty) opts.iterConf prestate runExpr
       let simpl = if conf.simp then Expr.simplify expr else expr
       pure $ flattenExpr simpl
     oneQedOrNoQed :: EqIssues -> EqIssues

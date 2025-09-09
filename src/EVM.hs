@@ -11,8 +11,8 @@ import Optics.State.Operators
 import Optics.Zoom
 
 import EVM.ABI
-import EVM.Expr (readStorage, writeStorage, readByte, readWord, writeWord,
-  writeByte, bufLength, indexWord, readBytes, copySlice, wordToAddr)
+import EVM.Expr (readStorage, concStoreContains, writeStorage, readByte, readWord, writeWord,
+  writeByte, bufLength, indexWord, readBytes, copySlice, wordToAddr, maybeLitByteSimp, maybeLitWordSimp, maybeLitAddrSimp)
 import EVM.Expr qualified as Expr
 import EVM.FeeSchedule (FeeSchedule (..))
 import EVM.Op
@@ -23,7 +23,6 @@ import EVM.Types qualified as Expr (Expr(Gas))
 import EVM.Sign qualified
 import EVM.Concrete qualified as Concrete
 import EVM.CheatsTH
-import EVM.Expr (maybeLitByteSimp, maybeLitWordSimp, maybeLitAddrSimp)
 import EVM.Effects (Config (..))
 
 import Control.Monad (unless, when)
@@ -1380,7 +1379,7 @@ runBoth depthLimit exploreDepth c = do
     assign #result $ Just $ HandleEffect (RunBoth c)
   else do
     vm <- get
-    assign #result $ Just $ Unfinished (BranchTooDeep {pc = vm.state.pc})
+    assign #result $ Just $ Unfinished (BranchTooDeep {pc = vm.state.pc, addr = vm.state.contract})
 
 runAll :: Maybe Int -> Int -> RunAll s -> EVM Symbolic s ()
 runAll depthLimit exploreDepth c = do
@@ -1388,7 +1387,7 @@ runAll depthLimit exploreDepth c = do
     assign #result $ Just $ HandleEffect (RunAll c)
   else do
     vm <- get
-    assign #result $ Just $ Unfinished (BranchTooDeep {pc = vm.state.pc})
+    assign #result $ Just $ Unfinished (BranchTooDeep {pc = vm.state.pc, addr = vm.state.contract})
 
 fetchAccount :: VMOps t => Expr EAddr -> (Contract -> EVM t s ()) -> EVM t s ()
 fetchAccount addr continue =
@@ -1417,8 +1416,7 @@ fetchAccountWithFallback addr fallback continue =
                 continue c
       GVar _ -> internalError "Unexpected GVar"
 
-accessStorage
-  :: (?conf :: Config, VMOps t) => Expr EAddr
+accessStorage :: forall s t . (?conf :: Config, VMOps t, Typeable t) => Expr EAddr
   -> Expr EWord
   -> (Expr EWord -> EVM t s ())
   -> EVM t s ()
@@ -1433,31 +1431,36 @@ accessStorage addr slot continue = do
       --     However, without concretization, it may not find things that are actually in the storage
       case readStorage slot c.storage of
         Just x -> case readStorage slotConc c.storage of
-          Just _ -> continue x
-          Nothing -> rpcCall c slotConc
+          Just (Lit _) -> continue x
+          Just _ | not c.external -> continue x
+          _ -> rpcCall c slotConc
         Nothing -> rpcCall c slotConc
     Nothing ->
-      fetchAccount addr $ \_ ->
-        accessStorage addr slot continue
+      fetchAccount addr $ \_ -> accessStorage addr slot continue
   where
       rpcCall c slotConc = fetchAccount addr $ \_ ->
         if c.external
         then forceConcreteAddr addr "cannot read storage from symbolic addresses via rpc" $ \addr' ->
           forceConcrete slotConc "cannot read symbolic slots via RPC" $ \slot' -> do
-            -- check if the slot is cached
             use (#env % #contracts % at (LitAddr addr')) >>= \case
               Nothing -> internalError $ "contract addr " <> show addr' <> " marked external not found in cache"
-              Just fetched -> case readStorage (Lit slot') fetched.storage of
-                          Nothing -> mkQuery addr' slot'
-                          Just val -> continue val
+              -- At this point, we know the contract is external and the underlying storage
+              -- is concrete. Check if the slot has already been fetched
+              Just contr -> if concStoreContains (Lit slot') contr.storage
+                then continue $ SLoad (Lit slot') contr.storage
+                else mkQuery addr' slot'
         else do
+          -- Symbolic address that cannot be cajoled/solved into a concrete one
+          -- We cannot query the underlying storage, as we don't know which one to query
+          -- So we store and return 0, as it is the only sound option
           modifying (#env % #contracts % ix addr % #storage) (writeStorage slot (Lit 0))
           continue $ Lit 0
+      mkQuery :: Addr -> W256 -> EVM t s ()
       mkQuery a s = query $ PleaseFetchSlot a s $ \x -> do
-              modifying (#cache % #fetched % ix a % #storage) (writeStorage (Lit s) (Lit x))
-              modifying (#env % #contracts % ix (LitAddr a) % #storage) (writeStorage (Lit s) (Lit x))
-              assign #result Nothing
-              continue $ Lit x
+        modifying (#cache % #fetched % ix a % #storage) (writeStorage (Lit s) (Lit x))
+        modifying (#env % #contracts % ix (LitAddr a) % #storage) (writeStorage (Lit s) (Lit x))
+        assign #result Nothing
+        continue $ Lit x
 
 accessTStorage
   :: VMOps t => Expr EAddr
@@ -1642,7 +1645,7 @@ unexpectedSymArg msg n = do
   pc <- use (#state % #pc)
   state <- use #state
   let opName = getOpName state
-  partial $ UnexpectedSymbolicArg pc opName msg (wrap n)
+  partial $ UnexpectedSymbolicArg pc state.contract opName msg (wrap n)
 
 unexpectedSymArgW :: (Typeable a, VMOps t) => String -> Expr a -> EVM t s ()
 unexpectedSymArgW msg n = unexpectedSymArg msg [n]
@@ -1794,7 +1797,7 @@ cheat gas (inOffset, inSize) (outOffset, outSize) xs = do
       case Map.lookup abi' cheatActions of
         Nothing -> do
           vm <- get
-          partial $ CheatCodeMissing vm.state.pc abi'
+          partial $ CheatCodeMissing vm.state.pc vm.state.contract abi'
         Just action -> action input
 
 type CheatAction t s = Expr Buf -> EVM t s ()
@@ -2495,6 +2498,7 @@ finishFrame how = do
                     Nothing -> partial $
                       UnexpectedSymbolicArg
                         oldVm.state.pc
+                        oldVm.state.contract
                         (getOpName oldVm.state)
                         "runtime code cannot have an abstract length"
                         (wrap [output])
@@ -2757,7 +2761,7 @@ noJumpIntoInitData idx cont = do
     -- init code has a symbolic region, so check if we're trying to jump into
     -- the symbolic region and return partial if we are
     InitCode ops _ -> if idx > BS.length ops
-                      then partial $ JumpIntoSymbolicCode vm.state.pc idx
+                      then partial $ JumpIntoSymbolicCode vm.state.pc vm.state.contract idx
                       else cont
     -- we're not executing init code, so nothing to check here
     _ -> cont
