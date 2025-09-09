@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RPC mocking framework that allows users to mock responses from an RPC
   node via `--mock-file FILE.json`. This will improve reliability of
   tests that depend on RPC responses
+- We now map back (add,pc) warnings to lines of source code
 
 ## Fixed
 - We now extract more Keccak computations than before from the Props to assert
@@ -32,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated forge to 1.2.3 and forge-std to 60acb7aa (1.9.7+)
 - We now gather Keccak axioms during `setUp()` and inject them into the SMT solver.
   This helps us finding more correct Keccak preimages
+- The printed reachable expression is now simplified
 
 ## [0.55.1] - 2025-07-22
 
