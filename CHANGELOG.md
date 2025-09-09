@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New empty solver option that simply makes sure that all SMT queries return
   unknown
 - Allow `verifyInputs` to return partial expressions
+- RPC mocking framework that allows users to mock responses from an RPC
+  node via `--mock-file FILE.json`. This will improve reliability of
+  tests that depend on RPC responses
 - We now map back (add,pc) warnings to lines of source code
 
 ## Fixed
@@ -21,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   more Keccak equalities.
 - Faster word256Bytes and word160Bytes functions to help concrete execution
   performance
+- RPC fetching was sometimes incorrect in case of writing to storage
+  before fetching it via RPC
 - We no longer increment branch depth twice when branching both ways
 - We now take into account loop heuristic setting for `test`
 
