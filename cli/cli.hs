@@ -541,7 +541,7 @@ showExtras solvers sOpts calldata expr = do
     reached <- reachable solvers expr
     liftIO $ do
       putStrLn "=== Potentially Reachable Expression ===\n"
-      T.putStrLn (formatExpr . snd $ reached)
+      T.putStrLn (formatExpr . Expr.simplify . snd $ reached)
       putStrLn ""
   when sOpts.getModels $ do
     liftIO $ putStrLn $ "=== Models for " <> show (Expr.numBranches expr) <> " branches ==="
