@@ -50,6 +50,16 @@ import Data.ByteString.Base16 qualified as BS16
 import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString.Char8 qualified as Char8
 
+
+-- only intended for use in Cache merges, where we expect
+-- everything to be Concrete
+unifyCachedContract :: Contract -> Contract -> Contract
+unifyCachedContract a b = a { storage = merged }
+  where merged = case (a.storage, b.storage) of
+                   (ConcreteStore sa, ConcreteStore sb) ->
+                     ConcreteStore (mappend sa sb)
+                   _ -> a.storage
+
 -- | Abstract representation of an RPC fetch request
 data RpcQuery a where
   QueryCode    :: Addr         -> RpcQuery BS.ByteString

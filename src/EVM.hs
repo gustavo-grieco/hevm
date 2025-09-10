@@ -184,7 +184,7 @@ makeVm o = do
       , baseFee = o.baseFee
       , schedule = o.schedule
       }
-    cache = Cache mempty mempty
+    cache = Cache mempty
 
 -- https://eips.ethereum.org/EIPS/eip-4788
 setEIP4788Storage :: VMOpts t -> VM t s -> VM t s
@@ -1402,18 +1402,12 @@ fetchAccountWithFallback addr fallback continue =
     Nothing -> case addr of
       SymAddr _ -> fallback addr
       LitAddr a -> do
-        use (#cache % #fetched % at a) >>= \case
-          Just c -> do
+        base <- use (#config % #baseState)
+        assign (#result) . Just . HandleEffect . Query $
+          PleaseFetchContract a base $ \c -> do
             assign (#env % #contracts % at addr) (Just c)
+            assign #result Nothing
             continue c
-          Nothing -> do
-            base <- use (#config % #baseState)
-            assign (#result) . Just . HandleEffect . Query $
-              PleaseFetchContract a base $ \c -> do
-                assign (#cache % #fetched % at a) (Just c)
-                assign (#env % #contracts % at addr) (Just c)
-                assign #result Nothing
-                continue c
       GVar _ -> internalError "Unexpected GVar"
 
 accessStorage :: forall s t . (?conf :: Config, VMOps t, Typeable t) => Expr EAddr
@@ -1457,7 +1451,6 @@ accessStorage addr slot continue = do
           continue $ Lit 0
       mkQuery :: Addr -> W256 -> EVM t s ()
       mkQuery a s = query $ PleaseFetchSlot a s $ \x -> do
-        modifying (#cache % #fetched % ix a % #storage) (writeStorage (Lit s) (Lit x))
         modifying (#env % #contracts % ix (LitAddr a) % #storage) (writeStorage (Lit s) (Lit x))
         assign #result Nothing
         continue $ Lit x
