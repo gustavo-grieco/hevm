@@ -48,12 +48,11 @@ import System.IO (hFlush, stdout)
 import Witch (unsafeInto, into)
 import Data.Vector qualified as V
 import Data.Char (ord)
-import Network.Wreq.Session (Session)
 
 data UnitTestOptions s = UnitTestOptions
   { rpcInfo       :: Fetch.RpcInfo
   , solvers       :: SolverGroup
-  , sess          :: Session
+  , sess          :: Fetch.Session
   , maxIter       :: Maybe Integer
   , askSmtIters   :: Integer
   , smtTimeout    :: Maybe Natural
@@ -543,7 +542,7 @@ initialUnitTestVm (UnitTestOptions {..}) theContract = do
           & set #balance (Lit testParams.balanceCreate)
   pure $ vm & set (#env % #contracts % at (LitAddr ethrunAddress)) (Just creator)
 
-paramsFromRpc :: forall m . App m => Fetch.RpcInfo -> Session -> m TestVMParams
+paramsFromRpc :: forall m . App m => Fetch.RpcInfo -> Fetch.Session -> m TestVMParams
 paramsFromRpc rpcInfo sess = do
   (miner,ts,blockNum,ran,limit,base) <- case rpcInfo.blockNumURL of
     Nothing -> pure (SymAddr "miner", Lit 0, Lit 0, 0, 0, 0)
@@ -581,7 +580,7 @@ paramsFromRpc rpcInfo sess = do
   where
     fetch block url = do
       conf <- readConfig
-      liftIO $ Fetch.fetchBlockWithSession conf sess block url >>= \case
+      liftIO $ Fetch.fetchBlockWithSession conf sess.sess block url >>= \case
         Nothing -> internalError "Could not fetch block"
         Just Block{..} -> pure ( coinbase
                                , timestamp

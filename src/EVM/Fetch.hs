@@ -10,6 +10,8 @@ module EVM.Fetch
   , readMockData
   , BlockNumber (..)
   , mkRpcInfo
+  , mkSession
+  , Session (..)
   ) where
 
 import EVM (initialContract, unknownContract)
@@ -36,8 +38,7 @@ import Data.Maybe (fromMaybe)
 import Data.List (foldl')
 import Data.Vector qualified as RegularVector
 import Network.Wreq
-import Network.Wreq.Session (Session)
-import Network.Wreq.Session qualified as Session
+import Network.Wreq.Session qualified as NetSession
 import Numeric.Natural (Natural)
 import System.Environment (lookupEnv, getEnvironment)
 import System.Process
@@ -49,7 +50,23 @@ import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Base16 qualified as BS16
 import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString.Char8 qualified as Char8
+import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar)
 
+data Session = Session
+  { sess          :: NetSession.Session
+  , lastBlockNum  :: Maybe W256
+  , sharedCache   :: SharedCache
+  }
+
+data FetchCache = FetchCache
+  { contractCache :: Map.Map Addr Contract
+  , slotCache     :: Map.Map (Addr, W256) W256
+  , blockCache    :: Map.Map W256 Block
+  }
+
+emptyCache :: FetchCache
+emptyCache = FetchCache Map.empty Map.empty Map.empty
+type SharedCache = MVar FetchCache
 
 -- only intended for use in Cache merges, where we expect
 -- everything to be Concrete
@@ -263,12 +280,12 @@ writeMockDataToFile filePath mockData = do
   BSL.writeFile filePath jsonData
   putStrLn $ "Successfully wrote JSON to: " ++ filePath
 
-fetchWithSession :: Text -> Session -> Value -> IO (Maybe Value)
+fetchWithSession :: Text -> NetSession.Session -> Value -> IO (Maybe Value)
 fetchWithSession url sess x = do
-  r <- asValue =<< Session.post sess (unpack url) x
+  r <- asValue =<< NetSession.post sess (unpack url) x
   pure (r ^? (lensVL responseBody) % key "result")
 
-fetchContractWithSession :: Config -> Session -> BlockNumber -> Text -> Addr -> IO (Maybe Contract)
+fetchContractWithSession :: Config -> NetSession.Session -> BlockNumber -> Text -> Addr -> IO (Maybe Contract)
 fetchContractWithSession conf sess n url addr = runMaybeT $ do
   let fetch :: Show a => RpcQuery a -> IO (Maybe a)
       fetch = fetchQuery n (fetchWithSession url sess)
@@ -286,11 +303,11 @@ makeContractFromRPC (RPCContract code nonce balance) =
       & set #balance  (Lit balance)
       & set #external True
 
-fetchSlotWithSession :: Session -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
+fetchSlotWithSession :: NetSession.Session -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
 fetchSlotWithSession sess n url addr slot =
   fetchQuery n (fetchWithSession url sess) (QuerySlot addr slot)
 
-fetchBlockWithSession :: Config -> Session -> BlockNumber -> Text -> IO (Maybe Block)
+fetchBlockWithSession :: Config -> NetSession.Session  -> BlockNumber -> Text -> IO (Maybe Block)
 fetchBlockWithSession conf sess n url = do
   when (conf.debug) $ putStrLn $ "Fetching block " ++ show n ++ " from " ++ unpack url
   ret <- fetchQuery n (fetchWithSession url sess) QueryBlock
@@ -302,7 +319,7 @@ fetchBlockWithSession conf sess n url = do
       Nothing -> pure ()
   pure ret
 
-fetchSlotFrom :: App m => Session -> BlockNumber -> Text -> Addr -> W256 -> m (Maybe W256)
+fetchSlotFrom :: App m => NetSession.Session -> BlockNumber -> Text -> Addr -> W256 -> m (Maybe W256)
 fetchSlotFrom sess n url addr slot = do
   conf <- readConfig
   ret <- liftIO $ fetchSlotWithSession sess n url addr slot
@@ -313,10 +330,16 @@ fetchSlotFrom sess n url addr slot = do
       Nothing -> pure ()
   pure ret
 
+mkSession :: App m => m Session
+mkSession = do
+  sess <- liftIO NetSession.newAPISession
+  cache <- liftIO $ newMVar emptyCache
+  pure $ Session sess Nothing cache
+
 -- Only used for testing (test.hs, BlockchainTests.hs)
 zero :: Natural -> Maybe Natural -> Fetcher t m s
 zero smtjobs smttimeout q = do
-  sess <- liftIO Session.newAPISession
+  sess <- mkSession
   withSolvers Z3 smtjobs 1 smttimeout $ \s ->
     oracle s sess mempty q
 
@@ -357,7 +380,10 @@ oracle solvers sess rpcInfo q = do
                 AbstractBase -> unknownContract (LitAddr addr)
                 EmptyBase -> emptyContract
               in pure $ Just c
-            Just (block, url) -> liftIO $ fetchContractWithSession conf sess block url addr
+            Just (block, url) -> liftIO $ readMVar sess.sharedCache >>= \cache ->
+              case Map.lookup addr cache.contractCache of
+                Just c -> pure $ Just c
+                Nothing -> fetchContractWithSession conf sess.sess block url addr
       case contract of
         Just x -> pure $ continue x
         Nothing -> internalError $ "oracle error: " ++ show q
@@ -372,10 +398,13 @@ oracle solvers sess rpcInfo q = do
           pure $ continue v
         Nothing -> case rpcInfo.blockNumURL of
             Nothing -> pure $ continue 0
-            Just (block, url) ->
-             fetchSlotFrom sess block url addr slot >>= \case
-               Just x  -> pure $ continue x
-               Nothing -> internalError $ "oracle error: " ++ show q
+            Just (block, url) -> do
+              cache <- liftIO $ readMVar sess.sharedCache
+              case Map.lookup (addr, slot) cache.slotCache of
+                Just s -> pure $ continue s
+                Nothing -> fetchSlotFrom sess.sess block url addr slot >>= \case
+                 Just x  -> pure $ continue x
+                 Nothing -> internalError $ "oracle error: " ++ show q
 
     PleaseReadEnv variable continue -> do
       value <- liftIO $ lookupEnv variable

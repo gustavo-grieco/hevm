@@ -32,8 +32,6 @@ import Data.Tuple (swap)
 import Data.Vector qualified as V
 import Data.Vector.Storable qualified as VS
 import Data.Vector.Storable.ByteString (vectorToByteString)
-import Network.Wreq.Session (Session)
-import qualified Network.Wreq.Session as Session
 
 import EVM (makeVm, abstractContract, initialContract, getCodeLocation, isValidJumpDest)
 import EVM.Exec
@@ -462,7 +460,7 @@ checkAssert
   -> VeriOpts
   -> m (Expr End, [VerifyResult])
 checkAssert solvers errs c signature' concreteArgs opts = do
-  sess <- liftIO Session.newAPISession
+  sess <- Fetch.mkSession
   verifyContract solvers sess c signature' concreteArgs opts Nothing (Just $ checkAssertions errs)
 
 -- Used only in testing
@@ -478,7 +476,7 @@ getExprEmptyStore solvers c signature' concreteArgs opts = do
   conf <- readConfig
   calldata <- mkCalldata signature' concreteArgs
   preState <- liftIO $ stToIO $ loadEmptySymVM (RuntimeCode (ConcreteRuntimeCode c)) (Lit 0) calldata
-  sess <- liftIO Session.newAPISession
+  sess <- Fetch.mkSession
   exprInter <- interpret (Fetch.oracle solvers sess opts.rpcInfo) opts.iterConf preState runExpr
   if conf.simp then (pure $ Expr.simplify exprInter) else pure exprInter
 
@@ -495,7 +493,7 @@ getExpr solvers c signature' concreteArgs opts = do
   conf <- readConfig
   calldata <- mkCalldata signature' concreteArgs
   preState <- liftIO $ stToIO $ abstractVM calldata c Nothing False
-  sess <- liftIO Session.newAPISession
+  sess <- Fetch.mkSession
   exprInter <- interpret (Fetch.oracle solvers sess opts.rpcInfo) opts.iterConf preState runExpr
   if conf.simp then (pure $ Expr.simplify exprInter) else pure exprInter
 
@@ -555,7 +553,7 @@ mkCalldata (Just (Sig name types)) args =
 verifyContract
   :: App m
   => SolverGroup
-  -> Session
+  -> Fetch.Session
   -> ByteString
   -> Maybe Sig
   -> [String]
@@ -677,7 +675,7 @@ getPartials = mapMaybe go
 verify
   :: App m
   => SolverGroup
-  -> Session
+  -> Fetch.Session
   -> VeriOpts
   -> VM Symbolic RealWorld
   -> Maybe (Postcondition RealWorld)
@@ -792,7 +790,7 @@ instance Semigroup EqIssues where
 equivalenceCheck
   :: forall m . App m
   => SolverGroup
-  -> Session
+  -> Fetch.Session
   -> ByteString
   -> ByteString
   -> VeriOpts
@@ -851,7 +849,7 @@ rewriteFresh prefix exprs = fmap (mapExpr mymap) exprs
 
 equivalenceCheck'
   :: forall m . App m
-  => SolverGroup -> Session -> [Expr End] -> [Expr End] -> Bool -> m EqIssues
+  => SolverGroup -> Fetch.Session -> [Expr End] -> [Expr End] -> Bool -> m EqIssues
 equivalenceCheck' solvers sess branchesA branchesB create = do
       conf <- readConfig
       when conf.debug $ do
