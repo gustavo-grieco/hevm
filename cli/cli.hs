@@ -596,7 +596,7 @@ vmFromCommand cOpts cExecOpts cFileOpts execOpts sess = do
   conf <- readConfig
   (miner,ts,baseFee,blockNum,prevRan) <- case cExecOpts.rpc of
     Nothing -> pure (LitAddr 0,Lit 0,0,Lit 0,0)
-    Just url -> liftIO $ Fetch.fetchBlockWithSession conf sess.sess block url >>= \case
+    Just url -> liftIO $ Fetch.fetchBlockWithSession conf sess block url >>= \case
       Nothing -> do
         putStrLn $ "Error, Could not fetch block" <> show block <> " from URL: " <> show url
         exitFailure
@@ -615,7 +615,7 @@ vmFromCommand cOpts cExecOpts cFileOpts execOpts sess = do
         putStrLn $ "Error, invalid code: " <> show c
         exitFailure
       else
-        Fetch.fetchContractWithSession conf sess.sess block url addr' >>= \case
+        Fetch.fetchContractWithSession conf sess block url addr' >>= \case
           Nothing -> do
             putStrLn $ "Error: contract not found: " <> show address
             exitFailure
@@ -628,7 +628,7 @@ vmFromCommand cOpts cExecOpts cFileOpts execOpts sess = do
                 & set #external (contract.external)
 
     (Just url, Just addr', Nothing) ->
-      liftIO $ Fetch.fetchContractWithSession conf sess.sess block url addr' >>= \case
+      liftIO $ Fetch.fetchContractWithSession conf sess block url addr' >>= \case
         Nothing -> do
           putStrLn $ "Error, contract not found: " <> show address
           exitFailure
@@ -710,7 +710,7 @@ symvmFromCommand cExecOpts sOpts cFileOpts sess calldata = do
   conf <- readConfig
   (miner,blockNum,baseFee,prevRan) <- case cExecOpts.rpc of
     Nothing -> pure (SymAddr "miner",Lit 0,0,0)
-    Just url -> liftIO $ Fetch.fetchBlockWithSession conf sess.sess block url >>= \case
+    Just url -> liftIO $ Fetch.fetchBlockWithSession conf sess block url >>= \case
       Nothing -> do
         putStrLn $ "Error, Could not fetch block" <> show block <> " from URL: " <> show url
         exitFailure
@@ -729,7 +729,7 @@ symvmFromCommand cExecOpts sOpts cFileOpts sess calldata = do
   codeWrapped <- getCode cFileOpts.codeFile cFileOpts.code
   contract <- case (cExecOpts.rpc, cExecOpts.address, codeWrapped) of
     (Just url, Just addr', _) ->
-      liftIO $ Fetch.fetchContractWithSession conf sess.sess block url addr' >>= \case
+      liftIO $ Fetch.fetchContractWithSession conf sess block url addr' >>= \case
         Nothing -> do
           putStrLn "Error, contract not found."
           exitFailure

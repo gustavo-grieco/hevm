@@ -34,7 +34,7 @@ import Data.Text (Text, unpack, pack)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust, fromJust)
 import Data.List (foldl')
 import Data.Vector qualified as RegularVector
 import Network.Wreq
@@ -50,11 +50,11 @@ import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Base16 qualified as BS16
 import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString.Char8 qualified as Char8
-import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar)
+import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
 
 data Session = Session
   { sess          :: NetSession.Session
-  , lastBlockNum  :: Maybe W256
+  , lastBlockNum  :: MVar (Maybe W256)
   , sharedCache   :: SharedCache
   }
 
@@ -298,7 +298,9 @@ fetchContractWithSession conf sess n url addr = do
       nonce   <- MaybeT $ fetch (QueryNonce addr)
       balance <- MaybeT $ fetch (QueryBalance addr)
       when (conf.debug) $ liftIO $ writeMockDataToFile fname (MockData (Just (Map.singleton addr (RPCContract code nonce balance))) Nothing Nothing)
-      pure $ makeContractFromRPC (RPCContract code nonce balance)
+      let contr = makeContractFromRPC (RPCContract code nonce balance)
+      liftIO $ modifyMVar_ sess.sharedCache $ \c -> pure $ c { contractCache = (Map.insert addr contr cache.contractCache) }
+      pure contr
 
 makeContractFromRPC :: RPCContract -> Contract
 makeContractFromRPC (RPCContract code nonce balance) =
@@ -311,16 +313,21 @@ fetchSlotWithSession :: NetSession.Session -> BlockNumber -> Text -> Addr -> W25
 fetchSlotWithSession sess n url addr slot =
   fetchQuery n (fetchWithSession url sess) (QuerySlot addr slot)
 
-fetchBlockWithSession :: Config -> NetSession.Session  -> BlockNumber -> Text -> IO (Maybe Block)
+fetchBlockWithSession :: Config -> Session  -> BlockNumber -> Text -> IO (Maybe Block)
 fetchBlockWithSession conf sess n url = do
   when (conf.debug) $ putStrLn $ "Fetching block " ++ show n ++ " from " ++ unpack url
-  ret <- fetchQuery n (fetchWithSession url sess) QueryBlock
+  ret <- fetchQuery n (fetchWithSession url sess.sess) QueryBlock
   when (conf.debug) $ case n of
     Latest -> pure () -- do not save latest block to file
     EVM.Fetch.BlockNumber bn -> case ret of
       Just v -> let fname = "fetched_block_" ++ show bn ++ ".json"
         in writeMockDataToFile fname (MockData Nothing Nothing (Just (Map.singleton bn v)))
       Nothing -> pure ()
+  -- case n of
+  --   Latest -> modifyMVar_ sess.lastBlockNum $ \_ -> pure (Lit <$> (v ^? _Just . #number))
+  --   EVM.Fetch.BlockNumber bn -> modifyMVar_ sess.lastBlockNum $ \case
+  --     Just (Lit lastBN) | lastBN >= bn -> pure (Just (Lit lastBN))
+  --     _ -> pure (Just (Lit bn))
   pure ret
 
 fetchSlotFrom :: App m => Session -> BlockNumber -> Text -> Addr -> W256 -> m (Maybe W256)
@@ -331,6 +338,8 @@ fetchSlotFrom sess n url addr slot = do
     Just s -> pure $ Just s
     Nothing -> do
       ret <- liftIO $ fetchSlotWithSession sess.sess n url addr slot
+      when (isJust ret) $ let val = fromJust ret in
+        liftIO $ modifyMVar_ sess.sharedCache $ \c -> pure $ c { slotCache = (Map.insert (addr,slot) val cache.slotCache) }
       when (conf.debug) $ liftIO $ do
         let fname = "fetched_slot_" ++ show addr ++ "_" ++ show slot ++ ".json"
         case ret of
@@ -342,7 +351,8 @@ mkSession :: App m => m Session
 mkSession = do
   sess <- liftIO NetSession.newAPISession
   cache <- liftIO $ newMVar emptyCache
-  pure $ Session sess Nothing cache
+  lastBlockNum <- liftIO $ newMVar Nothing
+  pure $ Session sess lastBlockNum cache
 
 -- Only used for testing (test.hs, BlockchainTests.hs)
 zero :: Natural -> Maybe Natural -> Fetcher t m s

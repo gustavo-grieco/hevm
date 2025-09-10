@@ -580,7 +580,7 @@ paramsFromRpc rpcInfo sess = do
   where
     fetch block url = do
       conf <- readConfig
-      liftIO $ Fetch.fetchBlockWithSession conf sess.sess block url >>= \case
+      liftIO $ Fetch.fetchBlockWithSession conf sess block url >>= \case
         Nothing -> internalError "Could not fetch block"
         Just Block{..} -> pure ( coinbase
                                , timestamp
