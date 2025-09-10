@@ -285,16 +285,20 @@ fetchWithSession url sess x = do
   r <- asValue =<< NetSession.post sess (unpack url) x
   pure (r ^? (lensVL responseBody) % key "result")
 
-fetchContractWithSession :: Config -> NetSession.Session -> BlockNumber -> Text -> Addr -> IO (Maybe Contract)
-fetchContractWithSession conf sess n url addr = runMaybeT $ do
-  let fetch :: Show a => RpcQuery a -> IO (Maybe a)
-      fetch = fetchQuery n (fetchWithSession url sess)
-      fname  = "fetched_contract_" ++ show addr ++ ".json"
-  code    <- MaybeT $ fetch (QueryCode addr)
-  nonce   <- MaybeT $ fetch (QueryNonce addr)
-  balance <- MaybeT $ fetch (QueryBalance addr)
-  when (conf.debug) $ liftIO $ writeMockDataToFile fname (MockData (Just (Map.singleton addr (RPCContract code nonce balance))) Nothing Nothing)
-  pure $ makeContractFromRPC (RPCContract code nonce balance)
+fetchContractWithSession :: Config -> Session -> BlockNumber -> Text -> Addr -> IO (Maybe Contract)
+fetchContractWithSession conf sess n url addr = do
+  cache <- readMVar sess.sharedCache
+  case Map.lookup addr cache.contractCache of
+    Just c -> pure $ Just c
+    Nothing -> runMaybeT $ do
+      let fetch :: Show a => RpcQuery a -> IO (Maybe a)
+          fetch = fetchQuery n (fetchWithSession url sess.sess)
+          fname  = "fetched_contract_" ++ show addr ++ ".json"
+      code    <- MaybeT $ fetch (QueryCode addr)
+      nonce   <- MaybeT $ fetch (QueryNonce addr)
+      balance <- MaybeT $ fetch (QueryBalance addr)
+      when (conf.debug) $ liftIO $ writeMockDataToFile fname (MockData (Just (Map.singleton addr (RPCContract code nonce balance))) Nothing Nothing)
+      pure $ makeContractFromRPC (RPCContract code nonce balance)
 
 makeContractFromRPC :: RPCContract -> Contract
 makeContractFromRPC (RPCContract code nonce balance) =
@@ -319,16 +323,20 @@ fetchBlockWithSession conf sess n url = do
       Nothing -> pure ()
   pure ret
 
-fetchSlotFrom :: App m => NetSession.Session -> BlockNumber -> Text -> Addr -> W256 -> m (Maybe W256)
+fetchSlotFrom :: App m => Session -> BlockNumber -> Text -> Addr -> W256 -> m (Maybe W256)
 fetchSlotFrom sess n url addr slot = do
   conf <- readConfig
-  ret <- liftIO $ fetchSlotWithSession sess n url addr slot
-  when (conf.debug) $ liftIO $ do
-    let fname = "fetched_slot_" ++ show addr ++ "_" ++ show slot ++ ".json"
-    case ret of
-      Just v -> writeMockDataToFile fname (MockData Nothing (Just (Map.singleton (addr, slot) v)) Nothing)
-      Nothing -> pure ()
-  pure ret
+  cache <- liftIO $ readMVar sess.sharedCache
+  case Map.lookup (addr, slot) cache.slotCache of
+    Just s -> pure $ Just s
+    Nothing -> do
+      ret <- liftIO $ fetchSlotWithSession sess.sess n url addr slot
+      when (conf.debug) $ liftIO $ do
+        let fname = "fetched_slot_" ++ show addr ++ "_" ++ show slot ++ ".json"
+        case ret of
+          Just v -> writeMockDataToFile fname (MockData Nothing (Just (Map.singleton (addr, slot) v)) Nothing)
+          Nothing -> pure ()
+      pure ret
 
 mkSession :: App m => m Session
 mkSession = do
@@ -380,10 +388,7 @@ oracle solvers sess rpcInfo q = do
                 AbstractBase -> unknownContract (LitAddr addr)
                 EmptyBase -> emptyContract
               in pure $ Just c
-            Just (block, url) -> liftIO $ readMVar sess.sharedCache >>= \cache ->
-              case Map.lookup addr cache.contractCache of
-                Just c -> pure $ Just c
-                Nothing -> fetchContractWithSession conf sess.sess block url addr
+            Just (block, url) -> liftIO $ fetchContractWithSession conf sess block url addr
       case contract of
         Just x -> pure $ continue x
         Nothing -> internalError $ "oracle error: " ++ show q
@@ -398,13 +403,9 @@ oracle solvers sess rpcInfo q = do
           pure $ continue v
         Nothing -> case rpcInfo.blockNumURL of
             Nothing -> pure $ continue 0
-            Just (block, url) -> do
-              cache <- liftIO $ readMVar sess.sharedCache
-              case Map.lookup (addr, slot) cache.slotCache of
-                Just s -> pure $ continue s
-                Nothing -> fetchSlotFrom sess.sess block url addr slot >>= \case
-                 Just x  -> pure $ continue x
-                 Nothing -> internalError $ "oracle error: " ++ show q
+            Just (block, url) -> fetchSlotFrom sess block url addr slot >>= \case
+               Just x  -> pure $ continue x
+               Nothing -> internalError $ "oracle error: " ++ show q
 
     PleaseReadEnv variable continue -> do
       value <- liftIO $ lookupEnv variable
