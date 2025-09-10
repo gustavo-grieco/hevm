@@ -25,6 +25,7 @@ import Control.Monad.ST (stToIO, RealWorld)
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.IO.Unlift
 import EVM.Effects
+import Network.Wreq.Session qualified as Session
 
 rpcEnv :: Env
 rpcEnv = Env { config = defaultConfig }
@@ -42,7 +43,8 @@ tests = testGroup "rpc"
         let block = BlockNumber 15537392
         conf <- readConfig
         liftIO $ do
-          (cb, numb, basefee, prevRan) <- fetchBlockFrom conf block testRpc >>= \case
+          sess <- Session.newAPISession
+          (cb, numb, basefee, prevRan) <- fetchBlockWithSession conf sess block testRpc >>= \case
                         Nothing -> internalError "Could not fetch block"
                         Just Block{..} -> pure ( coinbase
                                                      , number
@@ -58,7 +60,8 @@ tests = testGroup "rpc"
         conf <- readConfig
         liftIO $ do
           let block = BlockNumber 16184420
-          (cb, numb, basefee, prevRan) <- fetchBlockFrom conf block testRpc >>= \case
+          sess <- Session.newAPISession
+          (cb, numb, basefee, prevRan) <- fetchBlockWithSession conf sess block testRpc >>= \case
                         Nothing -> internalError "Could not fetch block"
                         Just Block{..} -> pure ( coinbase
                                                      , number
@@ -87,7 +90,8 @@ tests = testGroup "rpc"
           calldata' = ConcreteBuf $ abiMethod "transfer(address,uint256)" (AbiTuple (V.fromList [AbiAddress (Addr 0xdead), AbiUInt 256 wad]))
           rpcDat = Just (BlockNumber blockNum, testRpc)
           rpcInfo :: RpcInfo = mempty { blockNumURL = rpcDat }
-        vm <- weth9VM blockNum (calldata', [])
+        sess <- liftIO Session.newAPISession
+        vm <- weth9VM sess blockNum (calldata', [])
         postVm <- withSolvers Z3 1 1 Nothing $ \solvers ->
           Stepper.interpret (oracle solvers rpcInfo) vm Stepper.runFully
         let
@@ -111,7 +115,8 @@ tests = testGroup "rpc"
           blockNum = 16198552
           postc _ (Failure _ _ (Revert _)) = PBool False
           postc _ _ = PBool True
-        vm <- weth9VM blockNum calldata'
+        sess <- liftIO Session.newAPISession
+        vm <- weth9VM sess blockNum calldata'
         (_, [Cex (_, model)]) <- withSolvers Z3 1 1 Nothing $ \solvers ->
           verify solvers (rpcVeriOpts (BlockNumber blockNum, testRpc)) (symbolify vm) (Just postc)
         liftIO $ assertBool "model should exceed caller balance" (getVar model "arg2" >= 695836005599316055372648)
@@ -119,22 +124,22 @@ tests = testGroup "rpc"
   ]
 
 -- call into WETH9 from 0xf04a... (a large holder)
-weth9VM :: App m => W256 -> (Expr Buf, [Prop]) -> m (VM Concrete RealWorld)
-weth9VM blockNum calldata' = do
+weth9VM :: App m => Session -> W256 -> (Expr Buf, [Prop]) -> m (VM Concrete RealWorld)
+weth9VM sess blockNum calldata' = do
   let
     caller' = LitAddr 0xf04a5cc80b1e94c69b48f5ee68a08cd2f09a7c3e
     weth9 = Addr 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
     callvalue' = Lit 0
-  vmFromRpc blockNum calldata' callvalue' caller' weth9
+  vmFromRpc sess blockNum calldata' callvalue' caller' weth9
 
-vmFromRpc :: App m => W256 -> (Expr Buf, [Prop]) -> Expr EWord -> Expr EAddr -> Addr -> m (VM Concrete RealWorld)
-vmFromRpc blockNum calldata callvalue caller address = do
+vmFromRpc :: App m => Session -> W256 -> (Expr Buf, [Prop]) -> Expr EWord -> Expr EAddr -> Addr -> m (VM Concrete RealWorld)
+vmFromRpc sess blockNum calldata callvalue caller address = do
   conf <- readConfig
-  ctrct <- liftIO $ fetchContractFrom conf (BlockNumber blockNum) testRpc address >>= \case
+  ctrct <- liftIO $ fetchContractWithSession conf sess (BlockNumber blockNum) testRpc address >>= \case
         Nothing -> internalError $ "contract not found: " <> show address
         Just contract' -> pure contract'
 
-  blk <- liftIO $ fetchBlockFrom conf (BlockNumber blockNum) testRpc >>= \case
+  blk <- liftIO $ fetchBlockWithSession conf sess (BlockNumber blockNum) testRpc >>= \case
     Nothing -> internalError "could not fetch block"
     Just b -> pure b
 

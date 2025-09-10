@@ -1,5 +1,16 @@
 
-module EVM.Fetch where
+module EVM.Fetch
+  ( fetchContractWithSession
+  , fetchSlotWithSession
+  , fetchBlockWithSession
+  , oracle
+  , Fetcher
+  , RpcInfo (..)
+  , EVM.Fetch.zero
+  , readMockData
+  , BlockNumber (..)
+  , mkRpcInfo
+  ) where
 
 import EVM (initialContract, unknownContract)
 import EVM.ABI
@@ -72,6 +83,9 @@ instance Semigroup RpcInfo where
     RpcInfo (a1 <|> b1) (a2 <|> b2) (a3 <|> b3) (a4 <|> b4)
 instance Monoid RpcInfo where
   mempty = RpcInfo Nothing Nothing Nothing Nothing
+
+mkRpcInfo :: Maybe (BlockNumber, Text) -> MockData -> RpcInfo
+mkRpcInfo blockNumURL (MockData {..}) = RpcInfo blockNumURL mockContract mockSlot mockBlock
 
 rpc :: String -> [Value] -> Value
 rpc method args = object
@@ -244,8 +258,8 @@ fetchWithSession url sess x = do
   r <- asValue =<< Session.post sess (unpack url) x
   pure (r ^? (lensVL responseBody) % key "result")
 
-fetchContractWithSession :: Config -> BlockNumber -> Text -> Addr -> Session -> IO (Maybe Contract)
-fetchContractWithSession conf n url addr sess = runMaybeT $ do
+fetchContractWithSession :: Config -> Session -> BlockNumber -> Text -> Addr -> IO (Maybe Contract)
+fetchContractWithSession conf sess n url addr = runMaybeT $ do
   let fetch :: Show a => RpcQuery a -> IO (Maybe a)
       fetch = fetchQuery n (fetchWithSession url sess)
       fname  = "fetched_contract_" ++ show addr ++ ".json"
@@ -262,12 +276,13 @@ makeContractFromRPC (RPCContract code nonce balance) =
       & set #balance  (Lit balance)
       & set #external True
 
-fetchSlotWithSession :: BlockNumber -> Text -> Session -> Addr -> W256 -> IO (Maybe W256)
-fetchSlotWithSession n url sess addr slot =
+fetchSlotWithSession :: Session -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
+fetchSlotWithSession sess n url addr slot =
   fetchQuery n (fetchWithSession url sess) (QuerySlot addr slot)
 
-fetchBlockWithSession :: Config -> BlockNumber -> Text -> Session -> IO (Maybe Block)
-fetchBlockWithSession conf n url sess = do
+fetchBlockWithSession :: Config -> Session -> BlockNumber -> Text -> IO (Maybe Block)
+fetchBlockWithSession conf sess n url = do
+  when (conf.debug) $ putStrLn $ "Fetching block " ++ show n ++ " from " ++ unpack url
   ret <- fetchQuery n (fetchWithSession url sess) QueryBlock
   when (conf.debug) $ case n of
     Latest -> pure () -- do not save latest block to file
@@ -277,22 +292,11 @@ fetchBlockWithSession conf n url sess = do
       Nothing -> pure ()
   pure ret
 
-fetchBlockFrom :: Config -> BlockNumber -> Text -> IO (Maybe Block)
-fetchBlockFrom conf n url = do
-  when (conf.debug) $ putStrLn $ "Fetching block " ++ show n ++ " from " ++ unpack url
-  sess <- Session.newAPISession
-  fetchBlockWithSession conf n url sess
-
-fetchContractFrom :: Config -> BlockNumber -> Text -> Addr -> IO (Maybe Contract)
-fetchContractFrom conf n url addr = do
-  sess <- Session.newAPISession
-  fetchContractWithSession conf n url addr sess
-
-fetchSlotFrom :: Config -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
-fetchSlotFrom conf n url addr slot = do
-  sess <- Session.newAPISession
-  ret <- fetchSlotWithSession n url sess addr slot
-  when (conf.debug) $ do
+fetchSlotFrom :: App m => Session -> BlockNumber -> Text -> Addr -> W256 -> m (Maybe W256)
+fetchSlotFrom sess n url addr slot = do
+  conf <- readConfig
+  ret <- liftIO $ fetchSlotWithSession sess n url addr slot
+  when (conf.debug) $ liftIO $ do
     let fname = "fetched_slot_" ++ show addr ++ "_" ++ show slot ++ ".json"
     case ret of
       Just v -> writeMockDataToFile fname (MockData Nothing (Just (Map.singleton (addr, slot) v)) Nothing)
@@ -301,13 +305,14 @@ fetchSlotFrom conf n url addr slot = do
 
 -- Only used for testing (test.hs, BlockchainTests.hs)
 zero :: Natural -> Maybe Natural -> Fetcher t m s
-zero smtjobs smttimeout q =
+zero smtjobs smttimeout q = do
+  sess <- liftIO Session.newAPISession
   withSolvers Z3 smtjobs 1 smttimeout $ \s ->
-    oracle s mempty q
+    oracle s sess mempty q
 
 -- SMT solving + RPC data fetching + reading from environment
-oracle :: App m => SolverGroup -> RpcInfo -> Fetcher t m s
-oracle solvers rpcInfo q = do
+oracle :: App m => SolverGroup -> Session -> RpcInfo -> Fetcher t m s
+oracle solvers sess rpcInfo q = do
   case q of
     PleaseDoFFI vals envs continue -> case vals of
        cmd : args -> do
@@ -342,7 +347,7 @@ oracle solvers rpcInfo q = do
                 AbstractBase -> unknownContract (LitAddr addr)
                 EmptyBase -> emptyContract
               in pure $ Just c
-            Just (block, url) -> liftIO $ fetchContractFrom conf block url addr
+            Just (block, url) -> liftIO $ fetchContractWithSession conf sess block url addr
       case contract of
         Just x -> pure $ continue x
         Nothing -> internalError $ "oracle error: " ++ show q
@@ -358,7 +363,7 @@ oracle solvers rpcInfo q = do
         Nothing -> case rpcInfo.blockNumURL of
             Nothing -> pure $ continue 0
             Just (block, url) ->
-             liftIO $ fetchSlotFrom conf block url addr slot >>= \case
+             fetchSlotFrom sess block url addr slot >>= \case
                Just x  -> pure $ continue x
                Nothing -> internalError $ "oracle error: " ++ show q
 
