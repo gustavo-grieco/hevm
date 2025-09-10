@@ -162,12 +162,13 @@ initializeUnitTest opts theContract = do
     Left e -> pushTrace (ErrorTrace e)
     _ -> popTrace
 
-validateCex :: App m
+validateCex :: forall m . App m
   => UnitTestOptions RealWorld
+  -> Fetch.Fetcher Concrete m RealWorld
   -> VM Concrete RealWorld
   -> ReproducibleCex
   -> m Bool
-validateCex uTestOpts vm repCex = do
+validateCex uTestOpts fetcher vm repCex = do
   let utoConc = uTestOpts { testParams = uTestOpts.testParams { caller = LitAddr 0xacab}}
   conf <- readConfig
   when conf.debug $ liftIO $ putStrLn $ "Repro running function: " <> show utoConc.testParams.address <>
@@ -175,13 +176,13 @@ validateCex uTestOpts vm repCex = do
     ", and calldata: " <> show (bsToHex repCex.callData)
 
   -- Note, we should not need solvers to execute this code
-  vm2 <- Stepper.interpret (Fetch.oracle utoConc.solvers utoConc.sess utoConc.rpcInfo) vm $ do
+  vm2 <- Stepper.interpret fetcher vm $ do
     Stepper.evm $ do
       pushTrace (EntryTrace $ "checking cex for function " <> repCex.testName <> " with calldata: " <> (Text.pack $ bsToHex repCex.callData))
       makeTxCall utoConc.testParams (ConcreteBuf repCex.callData, [])
     Stepper.evm get
 
-  (res, (vm3, vmtrace)) <- runStateT (Tracing.interpretWithTrace (Fetch.oracle utoConc.solvers utoConc.sess utoConc.rpcInfo) Stepper.execFully) (vm2, [])
+  (res, (vm3, vmtrace)) <- runStateT (Tracing.interpretWithTrace fetcher Stepper.execFully) (vm2, [])
   when conf.debug $ liftIO $ do
     putStrLn $ "vm step trace: " <> unlines (map show vmtrace)
     putStrLn $ "vm res: " <> show res
@@ -273,7 +274,8 @@ symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) solcContr sourceCach
             Partial _ _ _ -> PBool True
             _ -> internalError "Invalid leaf node"
 
-    vm' <- Stepper.interpret (Fetch.oracle solvers sess rpcInfo) vm $
+    let fetcher = Fetch.oracle solvers sess rpcInfo
+    vm' <- Stepper.interpret fetcher vm $
       Stepper.evm $ do
         pushTrace (EntryTrace testName)
         makeTxCall testParams cd
@@ -281,7 +283,9 @@ symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) solcContr sourceCach
     writeTraceDapp dapp vm'
 
     -- check postconditions against vm
-    (end, results) <- verify solvers sess (makeVeriOpts opts) (symbolify vm') (Just postcondition)
+    -- TODO: fetcher and fetcher2 should be the same
+    let fetcher2 = Fetch.oracle solvers sess rpcInfo
+    (end, results) <- verify solvers fetcher2 (makeVeriOpts opts) (symbolify vm') (Just postcondition)
     let ends = flattenExpr end
     conf <- readConfig
     when conf.debug $ liftIO $ forM_ (filter Expr.isFailure ends) $ \case
@@ -301,7 +305,7 @@ symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) solcContr sourceCach
         -- there are counterexamples (and maybe other things, but Cex is most important)
         let x = mapMaybe extractCex results
         failsToRepro <- getReproFailures (Sig testName types) (fst cd) (map snd x)
-        validation <- mapM (traverse $ validateCex opts vm) failsToRepro
+        validation <- mapM (traverse $ validateCex opts fetcher vm) failsToRepro
         when conf.debug $ liftIO $ putStrLn $ "Cex reproduction runs' results are: " <> show validation
         let toPrintData = zipWith (\(a, b) c -> (a, b, c)) x validation
         txtFails <- symFailure opts testName (fst cd) types toPrintData

@@ -516,7 +516,8 @@ symbCheck cFileOpts sOpts cExecOpts cOpts = do
                               }
                             , rpcInfo = mempty {Fetch.blockNumURL = blockUrlInfo}
                             }
-    (expr, res) <- verify solvers sess veriOpts preState (Just $ checkAssertions errCodes)
+    let fetcher = Fetch.oracle solvers sess veriOpts.rpcInfo
+    (expr, res) <- verify solvers fetcher veriOpts preState (Just $ checkAssertions errCodes)
     case res of
       [Qed] -> do
         liftIO $ putStrLn "\nQED: No reachable property violations discovered\n"

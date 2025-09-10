@@ -550,8 +550,7 @@ mkCalldata Nothing _ = do
 mkCalldata (Just (Sig name types)) args =
   symCalldata name types args (AbstractBuf "txdata")
 
-verifyContract
-  :: App m
+verifyContract :: forall m . App m
   => SolverGroup
   -> Fetch.Session
   -> ByteString
@@ -564,7 +563,8 @@ verifyContract
 verifyContract solvers sess theCode signature' concreteArgs opts maybepre maybepost = do
   calldata <- mkCalldata signature' concreteArgs
   preState <- liftIO $ stToIO $ abstractVM calldata theCode maybepre False
-  verify solvers sess opts preState maybepost
+  let fetcher = Fetch.oracle solvers sess opts.rpcInfo
+  verify solvers fetcher opts preState maybepost
 
 -- | Stepper that parses the result of Stepper.runFully into an Expr End
 runExpr :: Stepper.Stepper Symbolic RealWorld (Expr End)
@@ -672,16 +672,15 @@ getPartials = mapMaybe go
 
 -- | Symbolically execute the VM and check all endstates against the
 -- postcondition, if available.
-verify
-  :: App m
+verify :: App m
   => SolverGroup
-  -> Fetch.Session
+  -> Fetch.Fetcher Symbolic m RealWorld
   -> VeriOpts
   -> VM Symbolic RealWorld
   -> Maybe (Postcondition RealWorld)
   -> m (Expr End, [VerifyResult])
-verify solvers sess opts preState maybepost = do
-  (expr, res, _) <- verifyInputs solvers opts (Fetch.oracle solvers sess opts.rpcInfo) preState maybepost
+verify solvers fetcher opts preState maybepost = do
+  (expr, res, _) <- verifyInputs solvers opts fetcher preState maybepost
   pure $ verifyResults preState expr res
 
 verifyResults :: VM Symbolic RealWorld -> Expr End -> [(SMTResult, Expr End)] -> (Expr End, [VerifyResult])
