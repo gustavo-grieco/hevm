@@ -4509,7 +4509,7 @@ tests = testGroup "hevm"
         let simp = Expr.simplifyProps [p]
         assertEqualM "Must simplify to PBool True" simp []
         withDefaultSolver $ \s -> do
-          (res, _) <- checkSatWithProps s [p]
+          res <- checkSatWithProps s [p]
           _ <- case res of
             Cex c -> pure c
             _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4517,7 +4517,7 @@ tests = testGroup "hevm"
     , testNoSimplify "sign-extend-2" $ do
       let p = (PEq (Lit 1) (SLT (SEx (Lit 2) (Var "arg1")) (Lit 0)))
       withDefaultSolver $ \s -> do
-        (res, _) <- checkSatWithProps s [p]
+        res <- checkSatWithProps s [p]
         _ <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4527,7 +4527,7 @@ tests = testGroup "hevm"
                 (PEq (Lit 1) (SLT (SEx (Lit 2) (Var "arg1")) (Lit 115792089237316195423570985008687907853269984665640564039457584007913128752664)))
                 (PEq (Var "arg1") (SEx (Lit 2) (Var "arg1")))
       withDefaultSolver $ \s -> do
-        (res, _) <- checkSatWithProps s [p]
+        res <- checkSatWithProps s [p]
         _ <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4535,7 +4535,7 @@ tests = testGroup "hevm"
     , testProperty "sign-extend-vs-smt" $ \(a :: W256, b :: W256) -> propNoSimpNoFuzz $ do
         let p = (PEq (Var "arg1") (SEx (Lit (a `mod` 50)) (Lit b)))
         withDefaultSolver $ \s -> do
-          (res, _) <- checkSatWithProps s [p]
+          res <- checkSatWithProps s [p]
           cex <- case res of
             Cex c -> pure c
             _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4682,7 +4682,7 @@ tests = testGroup "hevm"
     , testCase "correct-model-for-empty-buffer" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0}}) $ do
       withDefaultSolver $ \s -> do
         let props = [(PEq (BufLength (AbstractBuf "b")) (Lit 0x0))]
-        (res, _) <- checkSatWithProps s props
+        res <- checkSatWithProps s props
         (cex) <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4691,7 +4691,7 @@ tests = testGroup "hevm"
     , testCase "correct-model-for-non-empty-buffer-of-all-zeroes" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0}}) $ do
       withDefaultSolver $ \s -> do
         let props = [(PAnd (PEq (ReadByte (Lit 0x0) (AbstractBuf "b")) (LitByte 0x0)) (PEq (BufLength (AbstractBuf "b")) (Lit 0x1)))]
-        (res, _) <- checkSatWithProps s props
+        res <- checkSatWithProps s props
         (cex) <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4700,7 +4700,7 @@ tests = testGroup "hevm"
     , testCase "buffer-shrinking-does-not-loop" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0}}) $ do
       withDefaultSolver $ \s -> do
         let props = [(PGT (BufLength (AbstractBuf "b")) (Lit 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeb4))]
-        (res, _) <- checkSatWithProps s props
+        res <- checkSatWithProps s props
         let
           sat = case res of
             Cex _ -> True
@@ -4709,7 +4709,7 @@ tests = testGroup "hevm"
     , testCase "can-get-value-unrelated-to-large-buffer" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0}}) $ do
       withDefaultSolver $ \s -> do
         let props = [(PEq (Var "a") (Lit 0x1)), (PGT (BufLength (AbstractBuf "b")) (Lit 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeb4))]
-        (res, _) <- checkSatWithProps s props
+        res <- checkSatWithProps s props
         cex :: SMTCex <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -5554,7 +5554,7 @@ checkEquivAndLHS orig simp = do
 checkEquivBase :: (Eq a, App m) => (a -> a -> Prop) -> a -> a -> Bool -> m (Maybe Bool)
 checkEquivBase mkprop l r expect = do
   withSolvers Z3 1 1 (Just 1) $ \solvers -> do
-     (res, _) <- checkSatWithProps solvers [mkprop l r]
+     res <- checkSatWithProps solvers [mkprop l r]
      let ret = case res of
            Qed -> Just True
            Cex {} -> Just False

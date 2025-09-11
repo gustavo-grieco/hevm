@@ -396,16 +396,16 @@ checkBranch solvers branchcondition pathconditions = do
   let props = [pathconditions .&& branchcondition]
   checkSatWithProps solvers props >>= \case
     -- the condition is unsatisfiable
-    (Qed, _) -> -- if pathconditions are consistent then the condition must be false
+    Qed -> -- if pathconditions are consistent then the condition must be false
       pure $ Case False
     -- Sat means its possible for condition to hold
-    (Cex {}, _) -> do -- is its negation also possible?
+    Cex {} -> do -- is its negation also possible?
       let propsNeg = [pathconditions .&& (PNeg branchcondition)]
       checkSatWithProps solvers propsNeg >>= \case
         -- No. The condition must hold
-        (Qed, _) -> pure $ Case True
+        Qed -> pure $ Case True
         -- Yes. Both branches possible
-        (Cex {}, _) -> pure UnknownBranch
+        Cex {} -> pure UnknownBranch
         -- If the query times out, or can't be executed (e.g. symbolic copyslice) we simply explore both paths
         _ -> pure UnknownBranch
     -- If the query times out, or can't be executed (e.g. symbolic copyslice) we simply explore both paths

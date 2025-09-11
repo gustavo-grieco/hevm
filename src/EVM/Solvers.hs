@@ -102,18 +102,15 @@ checkMulti (SolverGroup taskq) smt2 multiSol = do
     -- collect result
     readChan resChan
 
-checkSatWithProps :: App m => SolverGroup -> [Prop] -> m (SMTResult, Err SMT2)
+checkSatWithProps :: App m => SolverGroup -> [Prop] -> m (SMTResult)
 checkSatWithProps sg props = do
   conf <- readConfig
   let psSimp = if conf.simp then simplifyProps props else props
-  if psSimp == [PBool False] then pure (Qed, Right mempty)
+  if psSimp == [PBool False] then pure Qed
   else do
     let smt2 = assertProps conf psSimp
-    if isLeft smt2 then
-      let err = getError smt2 in pure (Error err, Left err)
-    else do
-      res <- liftIO $ checkSat sg (Just props) smt2
-      pure (res, Right (getNonError smt2))
+    if isLeft smt2 then pure $ Error $ getError smt2
+    else liftIO $ checkSat sg (Just props) smt2
 
 -- When props is Nothing, the cache will not be filled or used
 checkSat :: SolverGroup -> Maybe [Prop] -> Err SMT2 -> IO SMTResult
