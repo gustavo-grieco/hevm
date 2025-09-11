@@ -39,7 +39,6 @@ import Data.Word (Word8, Word32, Word64, byteSwap32, byteSwap64)
 import Data.DoubleWord
 import Data.DoubleWord.TH
 import Data.Map (Map)
-import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Sequence (Seq)
