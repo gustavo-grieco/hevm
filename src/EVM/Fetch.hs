@@ -11,7 +11,6 @@ module EVM.Fetch
   , mkRpcInfo
   , mkSession
   , Session (..)
-  , testOracle
   ) where
 
 import EVM (initialContract, unknownContract)
