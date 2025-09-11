@@ -305,7 +305,6 @@ test-suite rpc-tests
   main-is:
     rpc.hs
   build-depends:
-    wreq,
 
 test-suite ethereum-tests
   import: test-common

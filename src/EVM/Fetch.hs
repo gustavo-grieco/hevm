@@ -11,6 +11,8 @@ module EVM.Fetch
   , mkRpcInfo
   , mkSession
   , Session (..)
+  , FetchCache (..)
+  , addFetchCache
   ) where
 
 import EVM (initialContract, unknownContract)
@@ -133,6 +135,11 @@ instance ToRPC BlockNumber where
 
 readText :: Read a => Text -> a
 readText = read . unpack
+
+addFetchCache :: Session -> Addr -> Contract -> IO ()
+addFetchCache sess address ctrct = do
+  cache <- readMVar sess.sharedCache
+  liftIO $ modifyMVar_ sess.sharedCache $ \c -> pure $ c { contractCache = (Map.insert address ctrct cache.contractCache) }
 
 fetchQuery
   :: Show a

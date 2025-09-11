@@ -10,7 +10,6 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Vector qualified as V
 
-import Optics.Core
 import EVM (makeVm, symbolify)
 import EVM.ABI
 import EVM.Fetch
@@ -25,7 +24,6 @@ import Control.Monad.ST (stToIO, RealWorld)
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.IO.Unlift
 import EVM.Effects
-import Network.Wreq.Session qualified as Session
 
 rpcEnv :: Env
 rpcEnv = Env { config = defaultConfig }
@@ -42,8 +40,8 @@ tests = testGroup "rpc"
     [ test "pre-merge-block" $ do
         let block = BlockNumber 15537392
         conf <- readConfig
+        sess <- mkSession
         liftIO $ do
-          sess <- Session.newAPISession
           (cb, numb, basefee, prevRan) <- fetchBlockWithSession conf sess block testRpc >>= \case
                         Nothing -> internalError "Could not fetch block"
                         Just Block{..} -> pure ( coinbase
@@ -58,9 +56,9 @@ tests = testGroup "rpc"
           assertEqual "prevRan" 11049842297455506 prevRan
     , test "post-merge-block" $ do
         conf <- readConfig
+        sess <- mkSession
         liftIO $ do
           let block = BlockNumber 16184420
-          sess <- Session.newAPISession
           (cb, numb, basefee, prevRan) <- fetchBlockWithSession conf sess block testRpc >>= \case
                         Nothing -> internalError "Could not fetch block"
                         Just Block{..} -> pure ( coinbase
@@ -90,10 +88,10 @@ tests = testGroup "rpc"
           calldata' = ConcreteBuf $ abiMethod "transfer(address,uint256)" (AbiTuple (V.fromList [AbiAddress (Addr 0xdead), AbiUInt 256 wad]))
           rpcDat = Just (BlockNumber blockNum, testRpc)
           rpcInfo :: RpcInfo = mempty { blockNumURL = rpcDat }
-        sess <- liftIO Session.newAPISession
+        sess <- mkSession
         vm <- weth9VM sess blockNum (calldata', [])
         postVm <- withSolvers Z3 1 1 Nothing $ \solvers ->
-          Stepper.interpret (oracle solvers rpcInfo) vm Stepper.runFully
+          Stepper.interpret (oracle solvers sess rpcInfo) vm Stepper.runFully
         let
           wethStore = (fromJust $ Map.lookup (LitAddr 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) postVm.env.contracts).storage
           wethStore' = case wethStore of
@@ -115,10 +113,11 @@ tests = testGroup "rpc"
           blockNum = 16198552
           postc _ (Failure _ _ (Revert _)) = PBool False
           postc _ _ = PBool True
-        sess <- liftIO Session.newAPISession
+        sess <- mkSession
         vm <- weth9VM sess blockNum calldata'
-        (_, [Cex (_, model)]) <- withSolvers Z3 1 1 Nothing $ \solvers ->
-          verify solvers (rpcVeriOpts (BlockNumber blockNum, testRpc)) (symbolify vm) (Just postc)
+        (_, [Cex (_, model)]) <- withSolvers Z3 1 1 Nothing $ \s ->
+          let rpcInfo ::RpcInfo =  mempty { blockNumURL = Just (BlockNumber blockNum, testRpc) }
+          in verify s (oracle s sess rpcInfo) (rpcVeriOpts (fromJust rpcInfo.blockNumURL)) (symbolify vm) (Just postc)
         liftIO $ assertBool "model should exceed caller balance" (getVar model "arg2" >= 695836005599316055372648)
     ]
   ]
@@ -139,11 +138,12 @@ vmFromRpc sess blockNum calldata callvalue caller address = do
         Nothing -> internalError $ "contract not found: " <> show address
         Just contract' -> pure contract'
 
+  liftIO $ addFetchCache sess address ctrct
   blk <- liftIO $ fetchBlockWithSession conf sess (BlockNumber blockNum) testRpc >>= \case
     Nothing -> internalError "could not fetch block"
     Just b -> pure b
 
-  liftIO $ stToIO $ (makeVm $ VMOpts
+  liftIO $ stToIO (makeVm $ VMOpts
     { contract       = ctrct
     , otherContracts = []
     , calldata       = calldata
@@ -170,7 +170,7 @@ vmFromRpc sess blockNum calldata callvalue caller address = do
     , allowFFI       = False
     , freshAddresses = 0
     , beaconRoot     = 0
-    }) <&> set (#cache % #fetched % at address) (Just ctrct)
+    })
 
 testRpc :: Text
 testRpc = "https://eth-mainnet.alchemyapi.io/v2/vpeKFsEF6PHifHzdtcwXSDbhV3ym5Ro4"
