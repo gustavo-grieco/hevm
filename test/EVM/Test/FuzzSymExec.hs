@@ -62,7 +62,6 @@ import EVM.Types hiding (Env)
 import EVM.Effects
 import Control.Monad.IO.Unlift
 import EVM.Tracing (interpretWithTrace, VMTraceStep (..) )
-import Control.Concurrent (readMVar)
 
 instance JSON.ToJSON VMTraceStep where
   toEncoding = JSON.genericToEncoding JSON.defaultOptions
@@ -421,16 +420,13 @@ runCodeWithTrace rpcinfo evmEnv alloc txn fromAddr toAddress = withSolvers Z3 0 
   let calldata' = ConcreteBuf txn.txdata
       code' = alloc.code
       iterConf = IterConfig { maxIter = Nothing, askSmtIters = 1, loopHeuristic = Naive }
-      fetcher = Fetch.oracle solvers sess rpcinfo
-      buildExpr s vm = interpret fetcher iterConf vm runExpr
+      fetcherSym = Fetch.oracle solvers sess rpcinfo
+      buildExpr vm = interpret fetcherSym iterConf vm runExpr
   origVM <- liftIO $ stToIO $ vmForRuntimeCode code' calldata' evmEnv alloc txn fromAddr toAddress
+  expr <- buildExpr $ symbolify origVM
 
-  expr <- buildExpr solvers $ symbolify origVM
-
-  -- TODO fetcher2
-  --
-  let fetcher2 = Fetch.oracle solvers sess rpcinfo
-  (res, (vm, trace)) <- runStateT (interpretWithTrace fetcher2 Stepper.execFully) (origVM, [])
+  let fetcherConc = Fetch.oracle solvers sess rpcinfo
+  (res, (vm, trace)) <- runStateT (interpretWithTrace fetcherConc Stepper.execFully) (origVM, [])
   case res of
     Left x -> pure $ Left (x, trace)
     Right _ -> pure $ Right (expr, trace, vmres vm)
