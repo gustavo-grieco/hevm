@@ -11,6 +11,7 @@ module EVM.Fetch
   , mkRpcInfo
   , mkSession
   , Session (..)
+  , testOracle
   ) where
 
 import EVM (initialContract, unknownContract)
@@ -387,8 +388,6 @@ zero smtjobs smttimeout q = do
 -- SMT solving + RPC data fetching + reading from environment
 oracle :: App m => SolverGroup -> Session -> RpcInfo -> Fetcher t m s
 oracle solvers sess rpcInfo q = do
-  -- cache <- liftIO $ readMVar sess.sharedCache
-  -- liftIO $ putStrLn $ "cache: " ++ show cache
   case q of
     PleaseDoFFI vals envs continue -> case vals of
        cmd : args -> do

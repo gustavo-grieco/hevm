@@ -128,6 +128,23 @@ withCVC5Solver = withSolvers CVC5 3 1 Nothing
 withBitwuzlaSolver :: App m => (SolverGroup -> m a) -> m a
 withBitwuzlaSolver = withSolvers Bitwuzla 3 1 Nothing
 
+testOracle :: App m => SolverGroup -> m (Query t s -> m (EVM t s ()))
+testOracle solvers = do
+  sess <- mkSession
+  pure $ \q -> oracle solvers sess mempty q
+
+testEquiv :: forall m . App m
+  => SolverGroup
+  -> ByteString
+  -> ByteString
+  -> VeriOpts
+  -> (Expr Buf, [Prop])
+  -> Bool
+  -> m EqIssues
+testEquiv solvers bytecodeA bytecodeB opts calldata create = do
+  sess <- mkSession
+  equivalenceCheck solvers sess bytecodeA bytecodeB opts calldata create = do
+
 main :: IO ()
 main = defaultMain tests
 
@@ -1838,7 +1855,7 @@ tests = testGroup "hevm"
           let calldata = (WriteWord (Lit 0x0) (Var "u") (ConcreteBuf ""), [])
           initVM <- liftIO $ stToIO $ abstractVM calldata initCode Nothing True
           let iterConf = IterConfig {maxIter=Nothing, askSmtIters=1, loopHeuristic=StackBased }
-          expr <- Expr.simplify <$> interpret (Fetch.oracle s mempty) iterConf initVM runExpr
+          expr <- Expr.simplify <$> interpret (testOracle s) iterConf initVM runExpr
           assertBoolM "unexptected partial execution" (not $ Expr.containsNode isPartial expr)
     , test "mixed-concrete-symbolic-args" $ do
         Just c <- solcRuntime "C"
@@ -1929,7 +1946,7 @@ tests = testGroup "hevm"
         withDefaultSolver $ \s -> do
           vm <- liftIO $ stToIO $ loadSymVM runtimecode (Lit 0) initCode False
           let iterConf = IterConfig {maxIter=Nothing, askSmtIters=1, loopHeuristic=StackBased }
-          expr <- Expr.simplify <$> interpret (Fetch.oracle s mempty) iterConf vm runExpr
+          expr <- Expr.simplify <$> interpret (testOracle s) iterConf vm runExpr
           case expr of
             Partial _ _ (JumpIntoSymbolicCode _ _ _) -> assertBoolM "" True
             _ -> assertBoolM "did not encounter expected partial node" False
