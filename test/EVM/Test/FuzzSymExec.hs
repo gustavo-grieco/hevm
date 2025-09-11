@@ -47,7 +47,6 @@ import Optics.Core hiding (pre)
 import EVM (makeVm, initialContract, symbolify)
 import EVM.Assembler (assemble)
 import EVM.Expr qualified as Expr
-import EVM.Concrete qualified as Concrete
 import EVM.Exec (ethrunAddress)
 import EVM.Fetch qualified as Fetch
 import EVM.Format (formatBinary)
@@ -63,6 +62,7 @@ import EVM.Types hiding (Env)
 import EVM.Effects
 import Control.Monad.IO.Unlift
 import EVM.Tracing (interpretWithTrace, VMTraceStep (..) )
+import Control.Concurrent (readMVar)
 
 instance JSON.ToJSON VMTraceStep where
   toEncoding = JSON.genericToEncoding JSON.defaultOptions
@@ -417,14 +417,20 @@ runCodeWithTrace
   => Fetch.RpcInfo -> EVMToolEnv -> EVMToolAlloc -> EVM.Transaction.Transaction
   -> Expr EAddr -> Expr EAddr -> m (Either (EvmError, [VMTraceStep]) ((Expr 'End, [VMTraceStep], VMTraceStepResult)))
 runCodeWithTrace rpcinfo evmEnv alloc txn fromAddr toAddress = withSolvers Z3 0 1 Nothing $ \solvers -> do
+  sess <- Fetch.mkSession
   let calldata' = ConcreteBuf txn.txdata
       code' = alloc.code
       iterConf = IterConfig { maxIter = Nothing, askSmtIters = 1, loopHeuristic = Naive }
-      buildExpr s vm = interpret (Fetch.oracle s mempty) iterConf vm runExpr
+      fetcher = Fetch.oracle solvers sess rpcinfo
+      buildExpr s vm = interpret fetcher iterConf vm runExpr
   origVM <- liftIO $ stToIO $ vmForRuntimeCode code' calldata' evmEnv alloc txn fromAddr toAddress
 
   expr <- buildExpr solvers $ symbolify origVM
-  (res, (vm, trace)) <- runStateT (interpretWithTrace (Fetch.oracle solvers rpcinfo) Stepper.execFully) (origVM, [])
+
+  -- TODO fetcher2
+  --
+  let fetcher2 = Fetch.oracle solvers sess rpcinfo
+  (res, (vm, trace)) <- runStateT (interpretWithTrace fetcher2 Stepper.execFully) (origVM, [])
   case res of
     Left x -> pure $ Left (x, trace)
     Right _ -> pure $ Right (expr, trace, vmres vm)
@@ -463,22 +469,6 @@ vmForRuntimeCode runtimecode calldata' evmToolEnv alloc txn fromAddr toAddress =
     }) <&> set (#env % #contracts % at (LitAddr ethrunAddress))
              (Just (initialContract (RuntimeCode (ConcreteRuntimeCode BS.empty))))
        <&> set (#state % #calldata) calldata'
-
-runCode :: App m => Fetch.RpcInfo -> ByteString -> Expr Buf -> m (Maybe (Expr Buf))
-runCode rpcinfo code' calldata' = withSolvers Z3 0 1 Nothing $ \solvers -> do
-  origVM <- liftIO $ stToIO $ vmForRuntimeCode
-              code'
-              calldata'
-              emptyEvmToolEnv
-              emptyEVMToolAlloc
-              EVM.Transaction.emptyTransaction
-              (LitAddr ethrunAddress)
-              (Concrete.createAddress ethrunAddress 1)
-  res <- Stepper.interpret (Fetch.oracle solvers rpcinfo) origVM Stepper.execFully
-  pure $ case res of
-    Left _ -> Nothing
-    Right b -> Just b
-
 
 vmres :: VM Concrete s -> VMTraceStepResult
 vmres vm =

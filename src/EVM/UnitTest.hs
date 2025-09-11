@@ -183,7 +183,7 @@ validateCex uTestOpts fetcher vm repCex = do
     Stepper.evm get
 
   (res, (vm3, vmtrace)) <- runStateT (Tracing.interpretWithTrace fetcher Stepper.execFully) (vm2, [])
-  when conf.debug $ liftIO $ do
+  when (conf.debug && (conf.verb > 2)) $ liftIO $ do
     putStrLn $ "vm step trace: " <> unlines (map show vmtrace)
     putStrLn $ "vm res: " <> show res
     putStrLn $ "vm res: " <> show vm3.result
@@ -274,8 +274,8 @@ symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) solcContr sourceCach
             Partial _ _ _ -> PBool True
             _ -> internalError "Invalid leaf node"
 
-    let fetcher = Fetch.oracle solvers sess rpcInfo
-    vm' <- Stepper.interpret fetcher vm $
+    let fetcherConc = Fetch.oracle solvers sess rpcInfo
+    vm' <- Stepper.interpret fetcherConc vm $
       Stepper.evm $ do
         pushTrace (EntryTrace testName)
         makeTxCall testParams cd
@@ -283,9 +283,8 @@ symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) solcContr sourceCach
     writeTraceDapp dapp vm'
 
     -- check postconditions against vm
-    -- TODO: fetcher and fetcher2 should be the same
-    let fetcher2 = Fetch.oracle solvers sess rpcInfo
-    (end, results) <- verify solvers fetcher2 (makeVeriOpts opts) (symbolify vm') (Just postcondition)
+    let fetcherSym = Fetch.oracle solvers sess rpcInfo
+    (end, results) <- verify solvers fetcherSym (makeVeriOpts opts) (symbolify vm') (Just postcondition)
     let ends = flattenExpr end
     conf <- readConfig
     when conf.debug $ liftIO $ forM_ (filter Expr.isFailure ends) $ \case
@@ -305,7 +304,9 @@ symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) solcContr sourceCach
         -- there are counterexamples (and maybe other things, but Cex is most important)
         let x = mapMaybe extractCex results
         failsToRepro <- getReproFailures (Sig testName types) (fst cd) (map snd x)
-        validation <- mapM (traverse $ validateCex opts fetcher vm) failsToRepro
+
+
+        validation <- mapM (traverse $ validateCex opts fetcherConc vm) failsToRepro
         when conf.debug $ liftIO $ putStrLn $ "Cex reproduction runs' results are: " <> show validation
         let toPrintData = zipWith (\(a, b) c -> (a, b, c)) x validation
         txtFails <- symFailure opts testName (fst cd) types toPrintData

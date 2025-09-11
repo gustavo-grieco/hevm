@@ -1,7 +1,6 @@
 
 module EVM.Fetch
   ( fetchContractWithSession
-  , fetchSlotWithSession
   , fetchBlockWithSession
   , oracle
   , Fetcher
@@ -52,10 +51,12 @@ import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString.Char8 qualified as Char8
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
 
+type Fetcher t m s = App m => Query t s -> m (EVM t s ())
+
 data Session = Session
   { sess          :: NetSession.Session
   , lastBlockNum  :: MVar (Maybe W256)
-  , sharedCache   :: SharedCache
+  , sharedCache   :: MVar FetchCache
   }
 
 data FetchCache = FetchCache
@@ -63,19 +64,11 @@ data FetchCache = FetchCache
   , slotCache     :: Map.Map (Addr, W256) W256
   , blockCache    :: Map.Map W256 Block
   }
-
-emptyCache :: FetchCache
-emptyCache = FetchCache Map.empty Map.empty Map.empty
-type SharedCache = MVar FetchCache
-
--- only intended for use in Cache merges, where we expect
--- everything to be Concrete
-unifyCachedContract :: Contract -> Contract -> Contract
-unifyCachedContract a b = a { storage = merged }
-  where merged = case (a.storage, b.storage) of
-                   (ConcreteStore sa, ConcreteStore sb) ->
-                     ConcreteStore (mappend sa sb)
-                   _ -> a.storage
+instance Show FetchCache where
+  show (FetchCache c s b) =
+    "FetchCache { contractCache: " ++ show (Map.keys c) ++
+    ", slotCache: " ++ show (Map.keys s) ++
+    ", blockCache: " ++ show (Map.keys b) ++ " }"
 
 -- | Abstract representation of an RPC fetch request
 data RpcQuery a where
@@ -289,7 +282,9 @@ fetchContractWithSession :: Config -> Session -> BlockNumber -> Text -> Addr -> 
 fetchContractWithSession conf sess n url addr = do
   cache <- readMVar sess.sharedCache
   case Map.lookup addr cache.contractCache of
-    Just c -> pure $ Just c
+    Just c -> do
+      when (conf.debug) $ putStrLn $ "Using cached contract at " ++ show addr
+      pure $ Just c
     Nothing -> runMaybeT $ do
       let fetch :: Show a => RpcQuery a -> IO (Maybe a)
           fetch = fetchQuery n (fetchWithSession url sess.sess)
@@ -335,7 +330,9 @@ fetchSlotFrom sess n url addr slot = do
   conf <- readConfig
   cache <- liftIO $ readMVar sess.sharedCache
   case Map.lookup (addr, slot) cache.slotCache of
-    Just s -> pure $ Just s
+    Just s -> do
+      when (conf.debug) $ liftIO $ putStrLn $ "Using cached slot value for slot " <> show slot <> " at " <> show addr
+      pure $ Just s
     Nothing -> do
       ret <- liftIO $ fetchSlotWithSession sess.sess n url addr slot
       when (isJust ret) $ let val = fromJust ret in
@@ -350,9 +347,11 @@ fetchSlotFrom sess n url addr slot = do
 mkSession :: App m => m Session
 mkSession = do
   sess <- liftIO NetSession.newAPISession
+  let emptyCache = FetchCache Map.empty Map.empty Map.empty
   cache <- liftIO $ newMVar emptyCache
   lastBlockNum <- liftIO $ newMVar Nothing
   pure $ Session sess lastBlockNum cache
+  where
 
 -- Only used for testing (test.hs, BlockchainTests.hs)
 zero :: Natural -> Maybe Natural -> Fetcher t m s
@@ -364,6 +363,8 @@ zero smtjobs smttimeout q = do
 -- SMT solving + RPC data fetching + reading from environment
 oracle :: App m => SolverGroup -> Session -> RpcInfo -> Fetcher t m s
 oracle solvers sess rpcInfo q = do
+  -- cache <- liftIO $ readMVar sess.sharedCache
+  -- liftIO $ putStrLn $ "cache: " ++ show cache
   case q of
     PleaseDoFFI vals envs continue -> case vals of
        cmd : args -> do
@@ -420,8 +421,6 @@ oracle solvers sess rpcInfo q = do
     PleaseReadEnv variable continue -> do
       value <- liftIO $ lookupEnv variable
       pure . continue $ fromMaybe "" value
-
-type Fetcher t m s = App m => Query t s -> m (EVM t s ())
 
 getSolutions :: forall m . App m => SolverGroup -> Expr EWord -> Int -> Prop -> m (Maybe [W256])
 getSolutions solvers symExprPreSimp numBytes pathconditions = do
