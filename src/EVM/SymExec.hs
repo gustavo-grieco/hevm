@@ -418,7 +418,7 @@ maxIterationsReached vm (Just maxIter) =
   let codelocation = getCodeLocation vm
       (iters, _) = view (at codelocation % non (0, [])) vm.iterations
   in if unsafeInto maxIter <= iters
-     then Map.lookup (codelocation, iters - 1) vm.cache.path
+     then Map.lookup (codelocation, iters - 1) vm.pathsVisited
      else Nothing
 
 askSmtItersReached :: VM Symbolic s -> Integer -> Bool

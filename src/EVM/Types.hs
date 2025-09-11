@@ -682,7 +682,7 @@ data VM (t :: VMType) s = VM
   , tx             :: TxState
   , logs           :: [Expr Log]
   , traces         :: Zipper.TreePos Zipper.Empty Trace
-  , cache          :: Cache
+  , pathsVisited   :: PathsVisited
   , burned         :: !(Gas t)
   , iterations     :: Map CodeLocation (Int, [Expr EWord])
   -- ^ how many times we've visited a loc, and what the contents of the stack were when we were there last
@@ -703,7 +703,7 @@ data VM (t :: VMType) s = VM
 data ForkState = ForkState
   { env :: Env
   , block :: Block
-  , cache :: Cache
+  , pathsVisited :: PathsVisited
   , urlOrAlias :: String
   }
   deriving (Show, Generic)
@@ -893,16 +893,7 @@ class VMOps (t :: VMType) where
 
 -- | A unique id for a given pc
 type CodeLocation = (Expr EAddr, Int)
-
--- | The cache is data that can be persisted for efficiency:
-data Cache = Cache { path    :: Map (CodeLocation, Int) Bool }
-  deriving (Show, Generic)
-
-instance Semigroup Cache where
-  a <> b = Cache { path = mappend a.path b.path }
-
-instance Monoid Cache where
-  mempty = Cache { path = mempty }
+type PathsVisited = Map (CodeLocation, Int) Bool
 
 
 -- Bytecode Representations ------------------------------------------------------------------------
@@ -1627,7 +1618,6 @@ makeFieldLabelsNoPrefix ''VM
 makeFieldLabelsNoPrefix ''FrameState
 makeFieldLabelsNoPrefix ''TxState
 makeFieldLabelsNoPrefix ''SubState
-makeFieldLabelsNoPrefix ''Cache
 makeFieldLabelsNoPrefix ''Trace
 makeFieldLabelsNoPrefix ''VMOpts
 makeFieldLabelsNoPrefix ''Frame
