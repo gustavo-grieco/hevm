@@ -895,19 +895,14 @@ class VMOps (t :: VMType) where
 type CodeLocation = (Expr EAddr, Int)
 
 -- | The cache is data that can be persisted for efficiency:
--- any expensive query that is constant at least within a block.
-data Cache = Cache
-  { path    :: Map (CodeLocation, Int) Bool
-  } deriving (Show, Generic)
+data Cache = Cache { path    :: Map (CodeLocation, Int) Bool }
+  deriving (Show, Generic)
 
 instance Semigroup Cache where
-  a <> b = Cache
-    { path = mappend a.path b.path
-    }
+  a <> b = Cache { path = mappend a.path b.path }
 
 instance Monoid Cache where
-  mempty = Cache { path = mempty
-                 }
+  mempty = Cache { path = mempty }
 
 
 -- Bytecode Representations ------------------------------------------------------------------------
