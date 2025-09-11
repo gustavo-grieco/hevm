@@ -54,9 +54,9 @@ import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
 type Fetcher t m s = App m => Query t s -> m (EVM t s ())
 
 data Session = Session
-  { sess          :: NetSession.Session
-  , lastBlockNum  :: MVar (Maybe W256)
-  , sharedCache   :: MVar FetchCache
+  { sess           :: NetSession.Session
+  , latestBlockNum :: MVar (Maybe W256)
+  , sharedCache    :: MVar FetchCache
   }
 
 data FetchCache = FetchCache
@@ -279,11 +279,12 @@ fetchWithSession url sess x = do
   pure (r ^? (lensVL responseBody) % key "result")
 
 fetchContractWithSession :: Config -> Session -> BlockNumber -> Text -> Addr -> IO (Maybe Contract)
-fetchContractWithSession conf sess n url addr = do
+fetchContractWithSession conf sess nPre url addr = do
+  n <- getLatestBlockNum conf sess nPre url
   cache <- readMVar sess.sharedCache
   case Map.lookup addr cache.contractCache of
     Just c -> do
-      when (conf.debug) $ putStrLn $ "Using cached contract at " ++ show addr
+      when (conf.debug) $ putStrLn $ "-> Using cached contract at " ++ show addr
       pure $ Just c
     Nothing -> runMaybeT $ do
       let fetch :: Show a => RpcQuery a -> IO (Maybe a)
@@ -297,6 +298,26 @@ fetchContractWithSession conf sess n url addr = do
       liftIO $ modifyMVar_ sess.sharedCache $ \c -> pure $ c { contractCache = (Map.insert addr contr cache.contractCache) }
       pure contr
 
+-- In case the user asks for Latest, and we have not yet established what Latest is,
+-- we fetch the block to find out. Otherwise, we update Latest to the value we have stored
+getLatestBlockNum :: Config -> Session -> BlockNumber -> Text -> IO BlockNumber
+getLatestBlockNum conf sess n url =
+  case n of
+   Latest -> do
+     val <- readMVar sess.latestBlockNum
+     case val of
+        Nothing -> do
+          blk <- internalBlockFetch conf sess Latest url
+          case blk of
+            Nothing -> pure Latest
+            Just b -> do
+              when (conf.debug) $ putStrLn $ "Setting latest block number to " ++ show b.number
+              let m = forceLit b.number
+              modifyMVar_ sess.latestBlockNum $ \_ -> pure $ Just m
+              pure $ EVM.Fetch.BlockNumber m
+        Just v -> pure $ EVM.Fetch.BlockNumber v
+   _ -> pure n
+
 makeContractFromRPC :: RPCContract -> Contract
 makeContractFromRPC (RPCContract code nonce balance) =
     initialContract (RuntimeCode (ConcreteRuntimeCode code))
@@ -309,29 +330,33 @@ fetchSlotWithSession sess n url addr slot =
   fetchQuery n (fetchWithSession url sess) (QuerySlot addr slot)
 
 fetchBlockWithSession :: Config -> Session  -> BlockNumber -> Text -> IO (Maybe Block)
-fetchBlockWithSession conf sess n url = do
+fetchBlockWithSession conf sess nPre url = do
+  n <- getLatestBlockNum conf sess nPre url
+  internalBlockFetch conf sess n url
+
+internalBlockFetch :: Config -> Session -> BlockNumber -> Text -> IO (Maybe Block)
+internalBlockFetch conf sess n url = do
   when (conf.debug) $ putStrLn $ "Fetching block " ++ show n ++ " from " ++ unpack url
   ret <- fetchQuery n (fetchWithSession url sess.sess) QueryBlock
-  when (conf.debug) $ case n of
-    Latest -> pure () -- do not save latest block to file
-    EVM.Fetch.BlockNumber bn -> case ret of
-      Just v -> let fname = "fetched_block_" ++ show bn ++ ".json"
-        in writeMockDataToFile fname (MockData Nothing Nothing (Just (Map.singleton bn v)))
-      Nothing -> pure ()
-  -- case n of
-  --   Latest -> modifyMVar_ sess.lastBlockNum $ \_ -> pure (Lit <$> (v ^? _Just . #number))
-  --   EVM.Fetch.BlockNumber bn -> modifyMVar_ sess.lastBlockNum $ \case
-  --     Just (Lit lastBN) | lastBN >= bn -> pure (Just (Lit lastBN))
-  --     _ -> pure (Just (Lit bn))
-  pure ret
+  case ret of
+    Nothing -> pure ret
+    Just b -> do
+      let bn = forceLit b.number
+      cache <- readMVar sess.sharedCache
+      liftIO $ modifyMVar_ sess.sharedCache $ \c -> pure $ c { blockCache = (Map.insert bn b cache.blockCache) }
+      when (conf.debug) $ do
+        let fname = "fetched_block_" ++ show bn ++ ".json"
+        writeMockDataToFile fname (MockData Nothing Nothing (Just (Map.singleton bn b)))
+      pure ret
 
 fetchSlotFrom :: App m => Session -> BlockNumber -> Text -> Addr -> W256 -> m (Maybe W256)
-fetchSlotFrom sess n url addr slot = do
+fetchSlotFrom sess nPre url addr slot = do
   conf <- readConfig
+  n <- liftIO $ getLatestBlockNum conf sess nPre url
   cache <- liftIO $ readMVar sess.sharedCache
   case Map.lookup (addr, slot) cache.slotCache of
     Just s -> do
-      when (conf.debug) $ liftIO $ putStrLn $ "Using cached slot value for slot " <> show slot <> " at " <> show addr
+      when (conf.debug) $ liftIO $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
       pure $ Just s
     Nothing -> do
       ret <- liftIO $ fetchSlotWithSession sess.sess n url addr slot
@@ -349,9 +374,8 @@ mkSession = do
   sess <- liftIO NetSession.newAPISession
   let emptyCache = FetchCache Map.empty Map.empty Map.empty
   cache <- liftIO $ newMVar emptyCache
-  lastBlockNum <- liftIO $ newMVar Nothing
-  pure $ Session sess lastBlockNum cache
-  where
+  latestBlockNum <- liftIO $ newMVar Nothing
+  pure $ Session sess latestBlockNum cache
 
 -- Only used for testing (test.hs, BlockchainTests.hs)
 zero :: Natural -> Maybe Natural -> Fetcher t m s
