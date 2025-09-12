@@ -49,7 +49,7 @@ import Data.Text qualified as TS
 import Data.Text.Lazy qualified as T
 import Data.Text.Lazy.Builder
 import qualified Data.Text.Lazy.Builder.Int (decimal)
-import Language.SMT2.Parser (getValueRes, parseCommentFreeFileMsg)
+import Language.SMT2.Parser (getValueRes, parseCommentFreeFileMsg, parseString, specConstant)
 import Language.SMT2.Syntax (Symbol, SpecConstant(..), GeneralRes(..), Term(..), QualIdentifier(..), Identifier(..), Sort(..), Index(..), VarBinding(..))
 import Numeric (readHex, readBin)
 import Witch (into, unsafeInto)
@@ -893,12 +893,12 @@ queryValue getVal w = do
   -- this exprToSMT should never fail, since we have already ran the solver
   let expr = toLazyText $ fromRight' $ exprToSMT w
   raw <- getVal expr
-  case parseCommentFreeFileMsg getValueRes (T.toStrict raw) of
-    Right (ResSpecific (valParsed :| [])) ->
-      case valParsed of
-        (_, TermSpecConstant sc) -> pure $ parseW256 sc
-        _ -> internalError $ "cannot parse model for: " <> show w
+  let valTxt = fromMaybe (internalError $ "failed to parse value from get-val response: " <> show raw) $ extractValue raw
+  case parseString specConstant (T.toStrict valTxt) of
+    Right sc -> pure $ parseW256 sc
     r -> parseErr r
+  where
+    extractValue getValResponse = (T.stripSuffix "))") $ snd $ T.breakOnEnd " " $ T.stripEnd getValResponse
 
 -- | Interpret an N-dimensional array as a value of type a.
 -- Parameterized by an interpretation function for array values.
