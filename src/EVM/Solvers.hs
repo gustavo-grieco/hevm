@@ -382,6 +382,7 @@ solverArgs solver threads timeout = case solver of
     , "--produce-models"
     , "--time-limit-per=" <> mkTimeout timeout
     , "--bv-solver=preprop"
+    , "--bv-output-format=16"
     ]
   Z3 ->
     [ "-st"
