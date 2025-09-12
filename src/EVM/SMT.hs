@@ -636,17 +636,20 @@ propToSMT = \case
 
 -- | Stores a region of src into dst
 copySlice :: Expr EWord -> Expr EWord -> Expr EWord -> Builder -> Builder -> Err Builder
-copySlice srcOffset dstOffset size0@(Lit _) src dst = do
-  sz <- internal size0
+copySlice srcOffset dstOffset (Lit size) src dst = do
+  sz <- internal size
   pure $ "(let ((src " <> src <> ")) " <> sz <> ")"
   where
-    internal (Lit 0) = pure dst
-    internal size = do
-      let size' = (Expr.sub size (Lit 1))
-      encDstOff <- exprToSMT (Expr.add dstOffset size')
-      encSrcOff <- exprToSMT (Expr.add srcOffset size')
-      child <- internal size'
+    internal 0 = pure dst
+    internal idx = do
+      let idx' = idx - 1
+      encDstOff <- offset idx' dstOffset
+      encSrcOff <- offset idx' srcOffset
+      child <- internal idx'
       pure $ "(store " <> child `sp` encDstOff `sp` "(select src " <> encSrcOff <> "))"
+    offset :: W256 -> Expr EWord -> Err Builder
+    offset o (Lit b) = pure $ wordAsBV $ o + b
+    offset o e = exprToSMT $ Expr.add (Lit o) e
 copySlice _ _ _ _ _ = Left "CopySlice with a symbolically sized region not currently implemented, cannot execute SMT solver on this query"
 
 -- | Unrolls an exponentiation into a series of multiplications
