@@ -14,14 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New empty solver option that simply makes sure that all SMT queries return
   unknown
 - Allow `verifyInputs` to return partial expressions
+- Counterexamples are now validated when running in `hevm test` mode
+- RPC mocking framework that allows users to mock responses from an RPC
+  node via `--mock-file FILE.json`. This will improve reliability of
+  tests that depend on RPC responses
+- We now map back (add,pc) warnings to lines of source code
 
 ## Fixed
 - We now extract more Keccak computations than before from the Props to assert
   more Keccak equalities.
 - Faster word256Bytes and word160Bytes functions to help concrete execution
   performance
+- RPC fetching was sometimes incorrect in case of writing to storage
+  before fetching it via RPC
 - We no longer increment branch depth twice when branching both ways
 - We now take into account loop heuristic setting for `test`
+- During running in --only-deployed mode, we forgot to force the address
+  in the constraints to be the one we computed it to be. Fixed.
 
 ## Changed
 - Updated forge to 1.2.3 and forge-std to 60acb7aa (1.9.7+)
@@ -29,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This helps us finding more correct Keccak preimages
 - The "origin" address is now symbolic by default when running in `symbolic` mode
 - The printed expressions when running in `symbolic` mode are now simplified
+- The printed reachable expression is now simplified
 
 ## [0.55.1] - 2025-07-22
 

@@ -210,19 +210,37 @@ main = do
 
       -- both should fail with address 0x1234 -- a SPECIFIC address, not a ranomly generated one
       it "keccak-assumptions-setup" $ do
-        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-preimage-setup.sol" ["--debug", "--num-cex-fuzz", "0", "--smtdebug"]
+        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-preimage-setup.sol" ["--num-cex-fuzz", "0"]
         stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[validated]"
         stdout `shouldContain` "0x0000000000000000000000000000000000001234"
         exitCode `shouldBe` (ExitFailure 1)
       it "keccak-assumptions-constructor" $ do
-        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-preimage-constructor.sol" ["--debug", "--num-cex-fuzz", "0", "--smtdebug"]
+        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-preimage-constructor.sol" ["--num-cex-fuzz", "0"]
         stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[validated]"
         stdout `shouldContain` "0x0000000000000000000000000000000000001234"
+        exitCode `shouldBe` (ExitFailure 1)
+      it "keccak-wrong-preimage" $ do
+        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-wrong-preimage.sol" ["--num-cex-fuzz", "0"]
+        stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[not reproducible]"
         exitCode `shouldBe` (ExitFailure 1)
       it "only-deployed-contracts" $ do
         (_, stdout, stderr) <- runForgeTest "test/contracts/pass/only-deployed-contracts.sol" ["--only-deployed"]
         stderr `shouldNotContain` "CallStack"
         stdout `shouldContain` "[PASS]"
+      it "only-deployed-contracts-force-addr" $ do
+        (_, stdout, stderr) <- runForgeTest "test/contracts/pass/only-deployed-force-addr.sol" ["--only-deployed"]
+        stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[FAIL]"
+        stdout `shouldContain` "[validated]"
+        stderr `shouldNotContain` "not reproducible"
+      it "should-fail" $ do
+        (_, stdout, stderr) <- runForgeTest "test/contracts/fail/should-fail.sol" []
+        stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[FAIL]"
+        stdout `shouldContain` "[validated]"
       it "dump unsolved" $ do
         -- >>> (139487132679483*2347234698674) % 982374892374389278894734
         -- 278198683154907855159120
@@ -244,3 +262,10 @@ main = do
         fileExists <- doesFileExist filename
         shouldBe fileExists True
         removeFile filename
+      it "rpc-mock" $ do
+        (_, stdout, stderr) <- runForgeTest "test/contracts/fail/rpc-test.sol"
+          ["--rpc", "http://mock.mock", "--prefix", "test_attack_symbolic"
+          , "--number", "10307563", "--mock-file", "test/contracts/fail/rpc-test-mock.json"]
+        putStrLn stdout
+        putStrLn stderr
+        stdout `shouldContain` "[FAIL]"
