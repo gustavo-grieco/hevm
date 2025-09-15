@@ -140,7 +140,6 @@ testEquiv solvers bytecodeA bytecodeB opts calldata cre = do
   sess <- Fetch.mkSession
   equivalenceCheck solvers sess bytecodeA bytecodeB opts calldata cre
 
-
 testVerifyContract :: forall m . App m
   => SolverGroup
   -> ByteString
