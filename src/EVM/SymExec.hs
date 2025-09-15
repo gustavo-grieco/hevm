@@ -3,6 +3,7 @@
 
 module EVM.SymExec where
 
+import Control.Arrow ((>>>))
 import Control.Concurrent.Async (concurrently, mapConcurrently)
 import Control.Concurrent.Spawn (parMapIO, pool)
 import Control.Monad (when, forM_, forM)
@@ -10,8 +11,6 @@ import Control.Monad.IO.Unlift
 import Control.Monad.Operational qualified as Operational
 import Control.Monad.ST (RealWorld, stToIO, ST)
 import Control.Monad.State.Strict (runStateT)
-import Control.Arrow ((>>>))
-import Data.Bifunctor (second)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Containers.ListUtils (nubOrd)
@@ -594,10 +593,10 @@ flattenExpr = go []
 -- the incremental nature of the task at hand. Introducing support for
 -- incremental queries might let us go even faster here.
 -- TODO: handle errors properly
-reachable :: App m => SolverGroup -> Expr End -> m ([SMT.SMT2], Expr End)
+reachable :: App m => SolverGroup -> Expr End -> m (Expr End)
 reachable solvers e = do
   res <- go [] e
-  pure $ second (fromMaybe (internalError "no reachable paths found")) res
+  pure $ fromMaybe (internalError "no reachable paths found") res
   where
     {-
        Walk down the tree and collect pcs.
@@ -605,26 +604,26 @@ reachable solvers e = do
        If reachable return the expr wrapped in a Just. If not return Nothing.
        When walking back up the tree drop unreachable subbranches.
     -}
-    go :: (App m, MonadUnliftIO m) => [Prop] -> Expr End -> m ([SMT.SMT2], Maybe (Expr End))
+    go :: (App m, MonadUnliftIO m) => [Prop] -> Expr End -> m (Maybe (Expr End))
     go pcs = \case
       ITE c t f -> do
         (tres, fres) <- withRunInIO $ \env -> concurrently
           (env $ go (PEq (Lit 1) c : pcs) t)
           (env $ go (PEq (Lit 0) c : pcs) f)
-        let subexpr = case (snd tres, snd fres) of
+        let subexpr = case (tres, fres) of
               (Just t', Just f') -> Just $ ITE c t' f'
               (Just t', Nothing) -> Just t'
               (Nothing, Just f') -> Just f'
               (Nothing, Nothing) -> Nothing
-        pure (fst tres <> fst fres, subexpr)
+        pure subexpr
       leaf -> do
-        (res, smt2) <- checkSatWithProps solvers pcs
+        res <- checkSatWithProps solvers pcs
         case res of
-          Qed -> pure ([getNonError smt2], Nothing)
-          Cex _ -> pure ([getNonError smt2], Just leaf)
+          Qed -> pure Nothing
+          Cex _ -> pure (Just leaf)
           -- if we get an error, we don't know if the leaf is reachable or not, so
           -- we assume it could be reachable
-          _ -> pure ([], Just leaf)
+          _ -> pure (Just leaf)
 
 -- | Extract constraints stored in Expr End nodes
 extractProps :: Expr End -> [Prop]
@@ -727,8 +726,8 @@ verifyInputs solvers opts fetcher preState maybepost = do
       -- Dispatch the remaining branches to the solver to check for violations
       results <- withRunInIO $ \env -> flip mapConcurrently withQueries $ \(query, leaf) -> do
         res <- env $ checkSatWithProps solvers query
-        when conf.debug $ putStrLn $ "   SMT result: " <> show (fst res)
-        pure (fst res, leaf)
+        when conf.debug $ putStrLn $ "   SMT result: " <> show res
+        pure (res, leaf)
       let cexs = filter (\(res, _) -> not . isQed $ res) results
       when conf.debug $ liftIO $
         putStrLn $ "   Found " <> show (length cexs) <> " potential counterexample(s) in call " <> call
@@ -881,7 +880,7 @@ equivalenceCheck' solvers branchesA branchesB create = do
        parMapIO (runOne env wrap) input
        where
          runOne env wrap (props, meaning) = do
-           res <- wrap (env $ fst <$> checkSatWithProps solvers (Set.toList props))
+           res <- wrap (env $ checkSatWithProps solvers (Set.toList props))
            pure (res, meaning)
 
     -- Takes two branches and returns a set of props that will need to be
@@ -1008,7 +1007,7 @@ produceModels solvers expr = do
   let flattened = flattenExpr expr
       withQueries = fmap (\e -> (extractProps e, e)) flattened
   results <- withRunInIO $ \runInIO -> (flip mapConcurrently) withQueries $ \(query, leaf) -> do
-    (res, _) <- runInIO $ checkSatWithProps solvers query
+    res <- runInIO $ checkSatWithProps solvers query
     pure (res, leaf)
   pure $ fmap swap $ filter (\(res, _) -> not . isQed $ res) results
 
