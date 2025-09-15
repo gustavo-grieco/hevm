@@ -765,7 +765,7 @@ symvmFromCommand cExecOpts sOpts cFileOpts calldata = do
                    else RuntimeCode (ConcreteRuntimeCode bs)
     address = eaddr (.address) (SymAddr "entrypoint")
     originAddr = eaddr (.origin) (SymAddr "origin")
-    originContr = abstractContract (RuntimeCode (ConcreteRuntimeCode "")) originAddr
+    originContr = abstractContract (RuntimeCode (SymbolicRuntimeCode mempty)) originAddr
     vm0 baseFee miner ts blockNum prevRan cd callvalue caller c baseState = makeVm $ VMOpts
       { contract       = c
       , otherContracts = [(originAddr, originContr)]
