@@ -389,11 +389,11 @@ zero :: Natural -> Maybe Natural -> Fetcher t m s
 zero smtjobs smttimeout q = do
   sess <- mkSession
   withSolvers Z3 smtjobs 1 smttimeout $ \s ->
-    oracle s sess mempty q
+    oracle s (Just sess) mempty q
 
 -- SMT solving + RPC data fetching + reading from environment
-oracle :: App m => SolverGroup -> Session -> RpcInfo -> Fetcher t m s
-oracle solvers sess rpcInfo q = do
+oracle :: forall t m s . App m => SolverGroup -> Maybe Session -> RpcInfo -> Fetcher t m s
+oracle solvers preSess rpcInfo q = do
   case q of
     PleaseDoFFI vals envs continue -> case vals of
        cmd : args -> do
@@ -414,7 +414,7 @@ oracle solvers sess rpcInfo q = do
          let pathconds = foldl' PAnd (PBool True) pathconditions
          continue <$> getSolutions solvers symExpr numBytes pathconds
 
-    PleaseFetchContract addr base continue -> do
+    PleaseFetchContract addr base continue -> withSession addr (continue (nothingContract base addr)) $ \sess -> do
       conf <- readConfig
       when (conf.debug) $ liftIO $ putStrLn $ "Fetching contract at " ++ show addr
       when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching contract at address 0"
@@ -423,17 +423,13 @@ oracle solvers sess rpcInfo q = do
           when (conf.debug) $ liftIO $ putStrLn $ "Using mocked contract at " ++ show addr
           pure $ Just (makeContractFromRPC c)
         Nothing -> case rpcInfo.blockNumURL of
-            Nothing -> let
-              c = case base of
-                AbstractBase -> unknownContract (LitAddr addr)
-                EmptyBase -> emptyContract
-              in pure $ Just c
+            Nothing -> pure $ Just $ nothingContract base addr
             Just (block, url) -> liftIO $ fetchContractWithSession conf sess block url addr
       case contract of
         Just x -> pure $ continue x
         Nothing -> internalError $ "oracle error: " ++ show q
 
-    PleaseFetchSlot addr slot continue -> do
+    PleaseFetchSlot addr slot continue -> withSession addr (continue 0)$ \sess -> do
       conf <- readConfig
       when (conf.debug) $ liftIO $ putStrLn $ "Fetching slot " <> (show slot) <> " at " <> (show addr)
       when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at address 0"
@@ -450,6 +446,21 @@ oracle solvers sess rpcInfo q = do
     PleaseReadEnv variable continue -> do
       value <- liftIO $ lookupEnv variable
       pure . continue $ fromMaybe "" value
+
+    where
+      nothingContract base addr =
+        case base of
+          AbstractBase -> unknownContract (LitAddr addr)
+          EmptyBase -> emptyContract
+      withSession addr def f =
+        case addr of
+          -- special values such as 0, 0xdeadbeef, 0xacab, hevm cheatcodes, and the precompile addresses
+          -- do not require a session, there is nothing deployed there, it's way too small or special, RPC would be pointless
+          a | a <= 0xdeadbeef -> pure def
+          0x7109709ECfa91a80626fF3989D68f67F5b1DD12D -> pure def
+          _ -> case preSess of
+            Just sess  -> f sess
+            Nothing -> internalError $ "oracle: no session provided for fetch addr: " ++ show addr
 
 getSolutions :: forall m . App m => SolverGroup -> Expr EWord -> Int -> Prop -> m (Maybe [W256])
 getSolutions solvers symExprPreSimp numBytes pathconditions = do

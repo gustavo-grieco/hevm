@@ -409,10 +409,9 @@ equivalence eqOpts cOpts = do
   calldata <- buildCalldata cOpts eqOpts.sig eqOpts.arg
   solver <- liftIO $ getSolver cOpts.solver
   cores <- liftIO $ unsafeInto <$> getNumProcessors
-  sess <- Fetch.mkSession
   let solverCount = fromMaybe cores cOpts.numSolvers
   withSolvers solver solverCount cOpts.solverThreads (Just cOpts.smttimeout) $ \s -> do
-    eq <- equivalenceCheck s sess (fromJust bytecodeA) (fromJust bytecodeB) veriOpts calldata eqOpts.create
+    eq <- equivalenceCheck s (fromJust bytecodeA) (fromJust bytecodeB) veriOpts calldata eqOpts.create
     let anyIssues =  not (null eq.partials) || any (isUnknown . fst) eq.res  || any (isError . fst) eq.res
     liftIO $ case (any (isCex . fst) eq.res, anyIssues) of
       (False, False) -> putStrLn "   \x1b[32m[PASS]\x1b[0m Contracts behave equivalently"
@@ -516,7 +515,7 @@ symbCheck cFileOpts sOpts cExecOpts cOpts = do
                               }
                             , rpcInfo = mempty {Fetch.blockNumURL = blockUrlInfo}
                             }
-    let fetcher = Fetch.oracle solvers sess veriOpts.rpcInfo
+    let fetcher = Fetch.oracle solvers (Just sess) veriOpts.rpcInfo
     (expr, res) <- verify solvers fetcher veriOpts preState (Just $ checkAssertions errCodes)
     case res of
       [Qed] -> do
@@ -571,7 +570,7 @@ launchExec cFileOpts execOpts cExecOpts cOpts = do
 
   -- TODO: we shouldn't need solvers to execute this code
   withSolvers Z3 0 1 Nothing $ \solvers -> do
-    vm' <- EVM.Stepper.interpret (Fetch.oracle solvers sess rpcDat) vm EVM.Stepper.runFully
+    vm' <- EVM.Stepper.interpret (Fetch.oracle solvers (Just sess) rpcDat) vm EVM.Stepper.runFully
     writeTraceDapp dapp vm'
     case vm'.result of
       Just (VMFailure (Revert msg)) -> liftIO $ do

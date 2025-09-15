@@ -460,8 +460,21 @@ checkAssert
   -> VeriOpts
   -> m (Expr End, [VerifyResult])
 checkAssert solvers errs c signature' concreteArgs opts = do
-  sess <- Fetch.mkSession
-  verifyContract solvers sess c signature' concreteArgs opts Nothing (Just $ checkAssertions errs)
+  checkAssertWithSession solvers Nothing errs c signature' concreteArgs opts
+
+-- Used only in testing
+checkAssertWithSession
+  :: App m
+  => SolverGroup
+  -> Maybe Fetch.Session
+  -> [Word256]
+  -> ByteString
+  -> Maybe Sig
+  -> [String]
+  -> VeriOpts
+  -> m (Expr End, [VerifyResult])
+checkAssertWithSession solvers sess errs c signature' concreteArgs opts = do
+  verifyContractWithSession solvers sess c signature' concreteArgs opts Nothing (Just $ checkAssertions errs)
 
 -- Used only in testing
 getExprEmptyStore
@@ -476,8 +489,7 @@ getExprEmptyStore solvers c signature' concreteArgs opts = do
   conf <- readConfig
   calldata <- mkCalldata signature' concreteArgs
   preState <- liftIO $ stToIO $ loadEmptySymVM (RuntimeCode (ConcreteRuntimeCode c)) (Lit 0) calldata
-  sess <- Fetch.mkSession
-  exprInter <- interpret (Fetch.oracle solvers sess opts.rpcInfo) opts.iterConf preState runExpr
+  exprInter <- interpret (Fetch.oracle solvers Nothing opts.rpcInfo) opts.iterConf preState runExpr
   if conf.simp then (pure $ Expr.simplify exprInter) else pure exprInter
 
 -- Used only in testing
@@ -493,8 +505,7 @@ getExpr solvers c signature' concreteArgs opts = do
   conf <- readConfig
   calldata <- mkCalldata signature' concreteArgs
   preState <- liftIO $ stToIO $ abstractVM calldata c Nothing False
-  sess <- Fetch.mkSession
-  exprInter <- interpret (Fetch.oracle solvers sess opts.rpcInfo) opts.iterConf preState runExpr
+  exprInter <- interpret (Fetch.oracle solvers Nothing opts.rpcInfo) opts.iterConf preState runExpr
   if conf.simp then (pure $ Expr.simplify exprInter) else pure exprInter
 
 {- | Checks if an assertion violation has been encountered
@@ -550,9 +561,9 @@ mkCalldata Nothing _ = do
 mkCalldata (Just (Sig name types)) args =
   symCalldata name types args (AbstractBuf "txdata")
 
+-- Used only in testing
 verifyContract :: forall m . App m
   => SolverGroup
-  -> Fetch.Session
   -> ByteString
   -> Maybe Sig
   -> [String]
@@ -560,7 +571,21 @@ verifyContract :: forall m . App m
   -> Maybe (Precondition RealWorld)
   -> Maybe (Postcondition RealWorld)
   -> m (Expr End, [VerifyResult])
-verifyContract solvers sess theCode signature' concreteArgs opts maybepre maybepost = do
+verifyContract solvers theCode signature' concreteArgs opts maybepre maybepost = do
+  verifyContractWithSession solvers Nothing theCode signature' concreteArgs opts maybepre maybepost
+
+-- Used only in testing
+verifyContractWithSession :: forall m . App m
+  => SolverGroup
+  -> Maybe Fetch.Session
+  -> ByteString
+  -> Maybe Sig
+  -> [String]
+  -> VeriOpts
+  -> Maybe (Precondition RealWorld)
+  -> Maybe (Postcondition RealWorld)
+  -> m (Expr End, [VerifyResult])
+verifyContractWithSession solvers sess theCode signature' concreteArgs opts maybepre maybepost = do
   calldata <- mkCalldata signature' concreteArgs
   preState <- liftIO $ stToIO $ abstractVM calldata theCode maybepre False
   let fetcher = Fetch.oracle solvers sess opts.rpcInfo
@@ -789,14 +814,13 @@ instance Semigroup EqIssues where
 equivalenceCheck
   :: forall m . App m
   => SolverGroup
-  -> Fetch.Session
   -> ByteString
   -> ByteString
   -> VeriOpts
   -> (Expr Buf, [Prop])
   -> Bool
   -> m EqIssues
-equivalenceCheck solvers sess bytecodeA bytecodeB opts calldata create = do
+equivalenceCheck solvers bytecodeA bytecodeB opts calldata create = do
   conf <- readConfig
   case bytecodeA == bytecodeB of
     True -> liftIO $ do
@@ -817,7 +841,7 @@ equivalenceCheck solvers sess bytecodeA bytecodeB opts calldata create = do
       let branchesA = rewriteFresh "A-" branchesAorig
           branchesB = rewriteFresh "B-" branchesBorig
       let partialIssues = EqIssues mempty (filter isPartial branchesA <> filter isPartial branchesB)
-      issues <- equivalenceCheck' solvers sess branchesA branchesB create
+      issues <- equivalenceCheck' solvers branchesA branchesB create
       pure $ oneQedOrNoQed issues <> partialIssues
   where
     -- decompiles the given bytecode into a list of branches
@@ -826,7 +850,7 @@ equivalenceCheck solvers sess bytecodeA bytecodeB opts calldata create = do
       conf <- readConfig
       let bytecode = if BS.null bs then BS.pack [0] else bs
       prestate <- liftIO $ stToIO $ abstractVM calldata bytecode Nothing create
-      expr <- interpret (Fetch.oracle solvers sess mempty) opts.iterConf prestate runExpr
+      expr <- interpret (Fetch.oracle solvers Nothing mempty) opts.iterConf prestate runExpr
       let simpl = if conf.simp then Expr.simplify expr else expr
       pure $ flattenExpr simpl
     oneQedOrNoQed :: EqIssues -> EqIssues
@@ -848,8 +872,8 @@ rewriteFresh prefix exprs = fmap (mapExpr mymap) exprs
 
 equivalenceCheck'
   :: forall m . App m
-  => SolverGroup -> Fetch.Session -> [Expr End] -> [Expr End] -> Bool -> m EqIssues
-equivalenceCheck' solvers sess branchesA branchesB create = do
+  => SolverGroup -> [Expr End] -> [Expr End] -> Bool -> m EqIssues
+equivalenceCheck' solvers branchesA branchesB create = do
       conf <- readConfig
       when conf.debug $ do
         liftIO $ printPartialIssues branchesA "codeA"
@@ -982,7 +1006,7 @@ equivalenceCheck' solvers sess branchesA branchesB create = do
             liftIO $ putStrLn $ "create deployed code B: " <> bsToHex codeB
               <> " with constraints: " <> (T.unpack . T.unlines $ map formatProp bProps)
           calldata <- mkCalldata Nothing []
-          equivalenceCheck solvers sess codeA codeB defaultVeriOpts calldata False
+          equivalenceCheck solvers codeA codeB defaultVeriOpts calldata False
         _ -> internalError $ "Symbolic code returned from constructor." <> " A: " <> show simpA <> " B: " <> show simpB
 
     statesDiffer :: Map (Expr EAddr) (Expr EContract) -> Map (Expr EAddr) (Expr EContract) -> Prop

@@ -91,7 +91,7 @@ tests = testGroup "rpc"
         sess <- mkSession
         vm <- weth9VM sess blockNum (calldata', [])
         postVm <- withSolvers Z3 1 1 Nothing $ \solvers ->
-          Stepper.interpret (oracle solvers sess rpcInfo) vm Stepper.runFully
+          Stepper.interpret (oracle solvers (Just sess) rpcInfo) vm Stepper.runFully
         let
           wethStore = (fromJust $ Map.lookup (LitAddr 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) postVm.env.contracts).storage
           wethStore' = case wethStore of
@@ -117,7 +117,7 @@ tests = testGroup "rpc"
         vm <- weth9VM sess blockNum calldata'
         (_, [Cex (_, model)]) <- withSolvers Z3 1 1 Nothing $ \s ->
           let rpcInfo ::RpcInfo =  mempty { blockNumURL = Just (BlockNumber blockNum, testRpc) }
-          in verify s (oracle s sess rpcInfo) (rpcVeriOpts (fromJust rpcInfo.blockNumURL)) (symbolify vm) (Just postc)
+          in verify s (oracle s (Just sess) rpcInfo) (rpcVeriOpts (fromJust rpcInfo.blockNumURL)) (symbolify vm) (Just postc)
         liftIO $ assertBool "model should exceed caller balance" (getVar model "arg2" >= 695836005599316055372648)
     ]
   ]

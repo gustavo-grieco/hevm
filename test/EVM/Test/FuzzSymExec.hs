@@ -416,16 +416,15 @@ runCodeWithTrace
   => Fetch.RpcInfo -> EVMToolEnv -> EVMToolAlloc -> EVM.Transaction.Transaction
   -> Expr EAddr -> Expr EAddr -> m (Either (EvmError, [VMTraceStep]) ((Expr 'End, [VMTraceStep], VMTraceStepResult)))
 runCodeWithTrace rpcinfo evmEnv alloc txn fromAddr toAddress = withSolvers Z3 0 1 Nothing $ \solvers -> do
-  sess <- Fetch.mkSession
   let calldata' = ConcreteBuf txn.txdata
       code' = alloc.code
       iterConf = IterConfig { maxIter = Nothing, askSmtIters = 1, loopHeuristic = Naive }
-      fetcherSym = Fetch.oracle solvers sess rpcinfo
+      fetcherSym = Fetch.oracle solvers Nothing rpcinfo
       buildExpr vm = interpret fetcherSym iterConf vm runExpr
   origVM <- liftIO $ stToIO $ vmForRuntimeCode code' calldata' evmEnv alloc txn fromAddr toAddress
   expr <- buildExpr $ symbolify origVM
 
-  let fetcherConc = Fetch.oracle solvers sess rpcinfo
+  let fetcherConc = Fetch.oracle solvers Nothing rpcinfo
   (res, (vm, trace)) <- runStateT (interpretWithTrace fetcherConc Stepper.execFully) (origVM, [])
   case res of
     Left x -> pure $ Left (x, trace)

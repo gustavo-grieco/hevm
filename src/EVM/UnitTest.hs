@@ -216,7 +216,7 @@ runUnitTestContract
     Just solcContr -> do
       -- Construct the initial VM and begin the contract's constructor
       vm0 :: VM Concrete RealWorld <- liftIO $ stToIO $ initialUnitTestVm opts solcContr
-      vm1 <- Stepper.interpret (Fetch.oracle solvers sess rpcInfo) vm0 $ do
+      vm1 <- Stepper.interpret (Fetch.oracle solvers (Just sess) rpcInfo) vm0 $ do
         Stepper.enter name
         initializeUnitTest opts solcContr
         Stepper.evm get
@@ -274,7 +274,7 @@ symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) solcContr sourceCach
             Partial _ _ _ -> PBool True
             _ -> internalError "Invalid leaf node"
 
-    let fetcherConc = Fetch.oracle solvers sess rpcInfo
+    let fetcherConc = Fetch.oracle solvers (Just sess) rpcInfo
     vm' <- Stepper.interpret fetcherConc vm $
       Stepper.evm $ do
         pushTrace (EntryTrace testName)
@@ -283,7 +283,7 @@ symRun opts@UnitTestOptions{..} vm sig@(Sig testName types) solcContr sourceCach
     writeTraceDapp dapp vm'
 
     -- check postconditions against vm
-    let fetcherSym = Fetch.oracle solvers sess rpcInfo
+    let fetcherSym = Fetch.oracle solvers (Just sess) rpcInfo
     (end, results) <- verify solvers fetcherSym (makeVeriOpts opts) (symbolify vm') (Just postcondition)
     let ends = flattenExpr end
     conf <- readConfig

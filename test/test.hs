@@ -128,31 +128,6 @@ withCVC5Solver = withSolvers CVC5 3 1 Nothing
 withBitwuzlaSolver :: App m => (SolverGroup -> m a) -> m a
 withBitwuzlaSolver = withSolvers Bitwuzla 3 1 Nothing
 
-testEquiv :: forall m . App m
-  => SolverGroup
-  -> ByteString
-  -> ByteString
-  -> VeriOpts
-  -> (Expr Buf, [Prop])
-  -> Bool
-  -> m EqIssues
-testEquiv solvers bytecodeA bytecodeB opts calldata cre = do
-  sess <- Fetch.mkSession
-  equivalenceCheck solvers sess bytecodeA bytecodeB opts calldata cre
-
-testVerifyContract :: forall m . App m
-  => SolverGroup
-  -> ByteString
-  -> Maybe Sig
-  -> [String]
-  -> VeriOpts
-  -> Maybe (Precondition RealWorld)
-  -> Maybe (Postcondition RealWorld)
-  -> m (Expr End, [VerifyResult])
-testVerifyContract solvers theCode signature' concreteArgs opts maybepre maybepost = do
-  sess <- Fetch.mkSession
-  verifyContract solvers sess theCode signature' concreteArgs opts maybepre maybepost
-
 main :: IO ()
 main = defaultMain tests
 
@@ -1863,8 +1838,7 @@ tests = testGroup "hevm"
           let calldata = (WriteWord (Lit 0x0) (Var "u") (ConcreteBuf ""), [])
           initVM <- liftIO $ stToIO $ abstractVM calldata initCode Nothing True
           let iterConf = IterConfig {maxIter=Nothing, askSmtIters=1, loopHeuristic=StackBased }
-          sess <- Fetch.mkSession
-          expr <- Expr.simplify <$> interpret (Fetch.oracle s sess mempty) iterConf initVM runExpr
+          expr <- Expr.simplify <$> interpret (Fetch.oracle s Nothing mempty) iterConf initVM runExpr
           assertBoolM "unexptected partial execution" (not $ Expr.containsNode isPartial expr)
     , test "mixed-concrete-symbolic-args" $ do
         Just c <- solcRuntime "C"
@@ -1955,8 +1929,7 @@ tests = testGroup "hevm"
         withDefaultSolver $ \s -> do
           vm <- liftIO $ stToIO $ loadSymVM runtimecode (Lit 0) initCode False
           let iterConf = IterConfig {maxIter=Nothing, askSmtIters=1, loopHeuristic=StackBased }
-          sess <- Fetch.mkSession
-          expr <- Expr.simplify <$> interpret (Fetch.oracle s sess mempty) iterConf vm runExpr
+          expr <- Expr.simplify <$> interpret (Fetch.oracle s Nothing mempty) iterConf vm runExpr
           case expr of
             Partial _ _ (JumpIntoSymbolicCode _ _ _) -> assertBoolM "" True
             _ -> assertBoolM "did not encounter expected partial node" False
@@ -2174,7 +2147,7 @@ tests = testGroup "hevm"
         Just c <- solcRuntime "C" src
         let sig = Sig "fun(uint256)" [AbiUIntType 256]
         (expr, [Qed]) <- withDefaultSolver $ \s ->
-          testVerifyContract s c (Just sig) [] defaultVeriOpts Nothing Nothing
+          verifyContract s c (Just sig) [] defaultVeriOpts Nothing Nothing
         let isSuc (Success {}) = True
             isSuc _ = False
         case filter isSuc (flattenExpr expr) of
@@ -2372,7 +2345,7 @@ tests = testGroup "hevm"
           |]
         -- NOTE: we have a postcondition here, not just a regular verification
         (_, [Cex _]) <- withDefaultSolver $ \s ->
-          testVerifyContract s c Nothing [] defaultVeriOpts Nothing (Just $ checkBadCheatCode "load(address,bytes32)")
+          verifyContract s c Nothing [] defaultVeriOpts Nothing (Just $ checkBadCheatCode "load(address,bytes32)")
         pure ()
     , test "vm.store fails for a potentially aliased address" $ do
         Just c <- solcRuntime "C"
@@ -2389,7 +2362,7 @@ tests = testGroup "hevm"
           |]
         -- NOTE: we have a postcondition here, not just a regular verification
         (_, [Cex _]) <- withDefaultSolver $ \s ->
-          testVerifyContract s c Nothing [] defaultVeriOpts Nothing (Just $ checkBadCheatCode "store(address,bytes32,bytes32)")
+          verifyContract s c Nothing [] defaultVeriOpts Nothing (Just $ checkBadCheatCode "store(address,bytes32,bytes32)")
         pure ()
     -- TODO: make this work properly
     , test "transfering-eth-does-not-dealias" $ do
@@ -3579,7 +3552,7 @@ tests = testGroup "hevm"
                    _ -> PBool True
             sig = Just (Sig "add(uint256,uint256)" [AbiUIntType 256, AbiUIntType 256])
         (res, [Qed]) <- withDefaultSolver $ \s ->
-          testVerifyContract s safeAdd sig [] defaultVeriOpts (Just pre) (Just post)
+          verifyContract s safeAdd sig [] defaultVeriOpts (Just pre) (Just post)
         putStrLnM $ "successfully explored: " <> show (Expr.numBranches res) <> " paths"
      ,
 
@@ -3606,7 +3579,7 @@ tests = testGroup "hevm"
                    Success _ _ b _ -> (ReadWord (Lit 0) b) .== (Mul (Lit 2) y)
                    _ -> PBool True
         (res, [Qed]) <- withDefaultSolver $ \s ->
-          testVerifyContract s safeAdd (Just (Sig "add(uint256,uint256)" [AbiUIntType 256, AbiUIntType 256])) [] defaultVeriOpts (Just pre) (Just post)
+          verifyContract s safeAdd (Just (Sig "add(uint256,uint256)" [AbiUIntType 256, AbiUIntType 256])) [] defaultVeriOpts (Just pre) (Just post)
         putStrLnM $ "successfully explored: " <> show (Expr.numBranches res) <> " paths"
       ,
       test "summary storage writes" $ do
@@ -3637,7 +3610,7 @@ tests = testGroup "hevm"
                 _ -> PBool True
             sig = Just (Sig "f(uint256)" [AbiUIntType 256])
         (res, [Qed]) <- withDefaultSolver $ \s ->
-          testVerifyContract s c sig [] defaultVeriOpts (Just pre) (Just post)
+          verifyContract s c sig [] defaultVeriOpts (Just pre) (Just post)
         putStrLnM $ "successfully explored: " <> show (Expr.numBranches res) <> " paths"
         ,
         -- tests how whiffValue handles Neg via application of the triple IsZero simplification rule
@@ -3699,7 +3672,7 @@ tests = testGroup "hevm"
                      _ -> PBool True
               sig = Just (Sig "f(uint256,uint256)" [AbiUIntType 256, AbiUIntType 256])
           (_, [Qed]) <- withDefaultSolver $ \s ->
-            testVerifyContract s c sig [] defaultVeriOpts (Just pre) (Just post)
+            verifyContract s c sig [] defaultVeriOpts (Just pre) (Just post)
           putStrLnM "Correct, this can never fail"
         ,
         -- Inspired by these `msg.sender == to` token bugs
@@ -3736,7 +3709,7 @@ tests = testGroup "hevm"
                      _ -> PBool True
               sig = Just (Sig "f(uint256,uint256)" [AbiUIntType 256, AbiUIntType 256])
           (_, [Cex (_, ctr)]) <- withDefaultSolver $ \s ->
-            testVerifyContract s c sig [] defaultVeriOpts (Just pre) (Just post)
+            verifyContract s c sig [] defaultVeriOpts (Just pre) (Just post)
           let x = getVar ctr "arg1"
           let y = getVar ctr "arg2"
           putStrLnM $ "y:" <> show y
@@ -4189,8 +4162,7 @@ tests = testGroup "hevm"
                     <&> set (#state % #callvalue) (Lit 0)
                     <&> over (#env % #contracts)
                        (Map.insert aAddr (initialContract (RuntimeCode (ConcreteRuntimeCode a))))
-            sess <- Fetch.mkSession
-            verify s (Fetch.oracle s sess mempty) defaultVeriOpts vm (Just $ checkAssertions defaultPanicCodes)
+            verify s (Fetch.oracle s Nothing mempty) defaultVeriOpts vm (Just $ checkAssertions defaultPanicCodes)
 
           let storeCex = cex.store
               testCex = case (Map.lookup cAddr storeCex, Map.lookup aAddr storeCex) of
@@ -4266,8 +4238,7 @@ tests = testGroup "hevm"
           let yulsafeDistributivity = hex "6355a79a6260003560e01c14156016576015601f565b5b60006000fd60a1565b603d602d604435600435607c565b6039602435600435607c565b605d565b6052604b604435602435605d565b600435607c565b141515605a57fe5b5b565b6000828201821115151560705760006000fd5b82820190505b92915050565b6000818384048302146000841417151560955760006000fd5b82820290505b92915050565b"
           calldata <- mkCalldata (Just (Sig "distributivity(uint256,uint256,uint256)" [AbiUIntType 256, AbiUIntType 256, AbiUIntType 256])) []
           vm <- liftIO $ stToIO $ abstractVM calldata yulsafeDistributivity Nothing False
-          sess <- Fetch.mkSession
-          (_, [Qed]) <-  withDefaultSolver $ \s -> verify s (Fetch.oracle s sess mempty) defaultVeriOpts vm (Just $ checkAssertions defaultPanicCodes)
+          (_, [Qed]) <-  withDefaultSolver $ \s -> verify s (Fetch.oracle s Nothing mempty) defaultVeriOpts vm (Just $ checkAssertions defaultPanicCodes)
           putStrLnM "Proven"
         ,
         test "safemath-distributivity-sol" $ do
@@ -4359,7 +4330,7 @@ tests = testGroup "hevm"
             |]
           let sig = Just (Sig "fun(uint256)" [AbiUIntType 256])
           (_, [Cex (_, cex)]) <- withDefaultSolver $
-            \s -> testVerifyContract s c sig [] defaultVeriOpts Nothing (Just $ checkAssertions [0x01])
+            \s -> verifyContract s c sig [] defaultVeriOpts Nothing (Just $ checkAssertions [0x01])
           let addr = SymAddr "entrypoint"
               testCex = Map.size cex.store == 1 &&
                         case Map.lookup addr cex.store of
@@ -4800,7 +4771,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Bitwuzla 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s a b defaultVeriOpts calldata False
+          eq <- equivalenceCheck s a b defaultVeriOpts calldata False
           assertBoolM "Must have a difference" (any (isCex . fst) eq.res)
           let cexs = mapMaybe (getCex . fst) eq.res
           assertEqualM "Must have exactly one cex" (length cexs) 1
@@ -4829,7 +4800,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Bitwuzla 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s a b defaultVeriOpts calldata False
+          eq <- equivalenceCheck s a b defaultVeriOpts calldata False
           assertBoolM "Must have a difference" (any (isCex . fst) eq.res)
           let cexs = mapMaybe (getCex . fst) eq.res
           assertEqualM "Must have exactly one cex" (length cexs) 1
@@ -4858,7 +4829,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Bitwuzla 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s a b defaultVeriOpts calldata False
+          eq <- equivalenceCheck s a b defaultVeriOpts calldata False
           assertBoolM "Must have a difference" (any (isCex . fst) eq.res)
           let cexs = mapMaybe (getCex . fst) eq.res
           assertEqualM "Must have exactly one cex" (length cexs) 1
@@ -4868,7 +4839,7 @@ tests = testGroup "hevm"
             b = fromJust (hexByteString "5f356101f40115610100526020610100f3")
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s a b defaultVeriOpts calldata False
+          eq <- equivalenceCheck s a b defaultVeriOpts calldata False
           assertBoolM "Must have a difference" (any (isCex . fst) eq.res)
           let cexs :: [SMTCex] = mapMaybe (getCex . fst) eq.res
           cex <- case cexs of
@@ -4900,7 +4871,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s aPrgm bPrgm defaultVeriOpts calldata False
+          eq <- equivalenceCheck s aPrgm bPrgm defaultVeriOpts calldata False
           assertBoolM "Must have a difference" (any (isCex . fst) eq.res)
       , test "constructor-same-deployed-diff" $ do
         Just initA <- solidity "C"
@@ -4929,7 +4900,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s initA initB defaultVeriOpts calldata True
+          eq <- equivalenceCheck s initA initB defaultVeriOpts calldata True
           assertBoolM "Must have difference, we return different values" (all (isCex . fst) eq.res)
       , test "constructor-same-deployed-diff2" $ do
         Just initA <- solidity "C"
@@ -4961,7 +4932,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s initA initB defaultVeriOpts calldata True
+          eq <- equivalenceCheck s initA initB defaultVeriOpts calldata True
           assertBoolM "Must have difference, we return different values" (all (isCex . fst) eq.res)
       , test "constructor-same-deployed-diff3" $ do
         Just initA <- solidity "C"
@@ -4987,7 +4958,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s initA initB defaultVeriOpts calldata True
+          eq <- equivalenceCheck s initA initB defaultVeriOpts calldata True
           assertBoolM "Must have difference, we return different values" (all (isCex . fst) eq.res)
       -- We set x to be 0 on deployment. Default value is also 0. So they are equivalent
       -- We cannot deal with symbolic code. However, the below will generate symbolic code,
@@ -5020,7 +4991,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s initA initB defaultVeriOpts calldata True
+          eq <- equivalenceCheck s initA initB defaultVeriOpts calldata True
           assertBoolM "Must have difference" (all (isCex . fst) eq.res)
       -- We set x to be 0 on deployment. Default value is also 0. So they are equivalent
       , test "constructor-implicit" $ do
@@ -5047,7 +5018,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s initA initB defaultVeriOpts calldata True
+          eq <- equivalenceCheck s initA initB defaultVeriOpts calldata True
           assertEqualM "Must have no difference" [Qed] (map fst eq.res)
       -- We set x to be 3 vs 0 (default) on deployment.
       , test "constructor-differing" $ do
@@ -5074,7 +5045,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s initA initB defaultVeriOpts calldata True
+          eq <- equivalenceCheck s initA initB defaultVeriOpts calldata True
           let cexes = filter (isCex . fst) eq.res
           assertBoolM "Must have a difference" (not $ null cexes)
       , test "eq-sol-exp-qed" $ do
@@ -5100,7 +5071,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s aPrgm bPrgm defaultVeriOpts calldata False
+          eq <- equivalenceCheck s aPrgm bPrgm defaultVeriOpts calldata False
           assertEqualM "Must have no difference" [Qed] (map fst eq.res)
       ,
       test "eq-balance-differs" $ do
@@ -5132,7 +5103,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s aPrgm bPrgm defaultVeriOpts calldata False
+          eq <- equivalenceCheck s aPrgm bPrgm defaultVeriOpts calldata False
           assertBoolM "Must differ" (all (isCex . fst) eq.res)
       ,
       -- TODO: this fails because we don't check equivalence of deployed contracts
@@ -5194,7 +5165,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s aPrgm bPrgm defaultVeriOpts calldata False
+          eq <- equivalenceCheck s aPrgm bPrgm defaultVeriOpts calldata False
           assertBoolM "Must differ" (all (isCex . fst) eq.res)
       ,
       test "eq-unknown-addr" $ do
@@ -5218,7 +5189,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Z3 3 1 Nothing $ \s -> do
           cd <- mkCalldata (Just (Sig "a(address,address)" [AbiAddressType, AbiAddressType])) []
-          eq <- testEquiv s aPrgm bPrgm defaultVeriOpts cd False
+          eq <- equivalenceCheck s aPrgm bPrgm defaultVeriOpts cd False
           assertEqualM "Must be different" (any (isCex . fst) eq.res) True
       ,
       test "eq-sol-exp-cex" $ do
@@ -5244,7 +5215,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Bitwuzla 3 1 Nothing $ \s -> do
           calldata <- mkCalldata Nothing []
-          eq <- testEquiv s aPrgm bPrgm defaultVeriOpts calldata False
+          eq <- equivalenceCheck s aPrgm bPrgm defaultVeriOpts calldata False
           assertEqualM "Must be different" (any (isCex . fst) eq.res) True
       ,
       test "eq-storage-write-to-static-array-uint128" $ do
@@ -5271,7 +5242,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Bitwuzla 1 1 Nothing $ \s -> do
           calldata <- mkCalldata (Just (Sig "set(uint256,uint128)" [AbiUIntType 256, AbiUIntType 128])) []
-          eq <- testEquiv s aPrgm bPrgm defaultVeriOpts calldata False
+          eq <- equivalenceCheck s aPrgm bPrgm defaultVeriOpts calldata False
           assertEqualM "Must have no difference" [Qed] (map fst eq.res)
       ,
       test "eq-storage-write-to-static-array-uint8" $ do
@@ -5298,7 +5269,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Bitwuzla 1 1 Nothing $ \s -> do
           calldata <- mkCalldata (Just (Sig "set(uint256,uint8)" [AbiUIntType 256, AbiUIntType 8])) []
-          eq <- testEquiv s aPrgm bPrgm defaultVeriOpts calldata False
+          eq <- equivalenceCheck s aPrgm bPrgm defaultVeriOpts calldata False
           assertEqualM "Must have no difference" [Qed] (map fst eq.res)
       ,
       test "eq-storage-write-to-static-array-uint32" $ do
@@ -5325,7 +5296,7 @@ tests = testGroup "hevm"
           |]
         withSolvers Bitwuzla 1 1 Nothing $ \s -> do
           calldata <- mkCalldata (Just (Sig "set(uint256,uint32)" [AbiUIntType 256, AbiUIntType 32])) []
-          eq <- testEquiv s aPrgm bPrgm defaultVeriOpts calldata False
+          eq <- equivalenceCheck s aPrgm bPrgm defaultVeriOpts calldata False
           assertEqualM "Must have no difference" [Qed] (map fst eq.res)
       , test "eq-all-yul-optimization-tests" $ do
         let opts = defaultVeriOpts{ iterConf = defaultIterConf {maxIter = Just 5, askSmtIters = 20, loopHeuristic = Naive }}
@@ -5539,7 +5510,7 @@ tests = testGroup "hevm"
           procs <- liftIO $ getNumProcessors
           withSolvers CVC5 (unsafeInto procs) 1 (Just 100) $ \s -> do
             calldata <- mkCalldata Nothing []
-            eq <- testEquiv s aPrgm bPrgm opts calldata False
+            eq <- equivalenceCheck s aPrgm bPrgm opts calldata False
             let res = map fst eq.res
             end <- liftIO $ getCurrentTime
             case any isCex res of
@@ -6358,7 +6329,7 @@ reachableUserAsserts = checkPost (Just $ checkAssertions [0x01])
 checkPost :: App m => Maybe (Postcondition RealWorld) -> ByteString -> Maybe Sig -> m (Either [SMTCex] (Expr End))
 checkPost post c sig = do
   (e, res) <- withDefaultSolver $ \s ->
-    testVerifyContract s c sig [] defaultVeriOpts Nothing post
+    verifyContract s c sig [] defaultVeriOpts Nothing post
   let cexs = snd <$> mapMaybe getCex res
   case cexs of
     [] -> pure $ Right e
