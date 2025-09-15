@@ -77,7 +77,7 @@ import EVM.Types hiding (Env)
 import EVM.Effects
 import EVM.UnitTest (writeTrace, printWarnings)
 import EVM.Expr (maybeLitByteSimp)
-import EVM.Keccak (keccakCompute)
+import EVM.Keccak (concreteKeccaks)
 
 testEnv :: Env
 testEnv = Env { config = defaultConfig {
@@ -4725,13 +4725,13 @@ tests = testGroup "hevm"
       conf <- readConfig
       let SMT2 script _ _ = fromRight (internalError "Must succeed") (assertProps conf props)
       assertBoolM "There were duplicate lines in SMT encoding" $ not (hasDuplicateCommands script)
-     , test "all-keccak-asserted" $ do
+     , test "all-concrete-keccaks-discovered" $ do
       let buf1 = (Keccak (ConcreteBuf "abc"))
           eq = (Eq buf1 (Lit 0x12))
           buf2 = WriteWord eq (Lit 0x0) mempty
           props = [PEq (Keccak buf2) (Lit 0x123)]
-          computes = keccakCompute props [] []
-      assertEqualM "Must compute two keccaks" 2 (length computes)
+          concrete = concreteKeccaks props
+      assertEqualM "Must find two keccaks" 2 (length concrete)
     , testCase "store-over-concrete-buffer" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0, simp = False}}) $ do
       let
         as = AbstractStore (SymAddr "test") Nothing
