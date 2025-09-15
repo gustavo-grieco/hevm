@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - We now gather Keccak axioms during `setUp()` and inject them into the SMT solver.
   This helps us finding more correct Keccak preimages
 - The "origin" address is now symbolic by default when running in `symbolic` mode
+- The printed expressions when running in `symbolic` mode are now simplified
 
 ## [0.55.1] - 2025-07-22
 
