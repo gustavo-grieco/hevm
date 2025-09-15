@@ -304,7 +304,6 @@ test-suite rpc-tests
     exitcode-stdio-1.0
   main-is:
     rpc.hs
-  build-depends:
 
 test-suite ethereum-tests
   import: test-common
