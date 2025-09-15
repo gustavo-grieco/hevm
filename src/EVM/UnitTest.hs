@@ -169,7 +169,7 @@ validateCex :: forall m . App m
   -> ReproducibleCex
   -> m Bool
 validateCex uTestOpts fetcher vm repCex = do
-  let utoConc = uTestOpts { testParams = uTestOpts.testParams { caller = LitAddr 0xacab}}
+  let utoConc = uTestOpts { testParams = uTestOpts.testParams { caller = LitAddr 0xdeadbeef}}
   conf <- readConfig
   when conf.debug $ liftIO $ putStrLn $ "Repro running function: " <> show utoConc.testParams.address <>
     " with caller: " <> show utoConc.testParams.caller <> ", gas: " <> show utoConc.testParams.gasCall <>
