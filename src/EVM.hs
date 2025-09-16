@@ -3076,8 +3076,8 @@ instance VMOps Symbolic where
       condSimpConc = Expr.concKeccakSimpExpr condSimp
       runBothPaths loc _ (Case v) = do
         assign #result Nothing
-        pushTo #constraints $ if v then Expr.simplifyProp (condSimpConc ./= Lit 0)
-                                   else Expr.simplifyProp (condSimpConc .== Lit 0)
+        pushTo #constraints $ if v then Expr.simplifyProp (Lit 0 ./= condSimpConc)
+                                   else Expr.simplifyProp (Lit 0 .== condSimpConc)
         (iteration, _) <- use (#iterations % at loc % non (0,[]))
         stack <- use (#state % #stack)
         assign (#pathsVisited % at (loc, iteration)) (Just v)
