@@ -539,13 +539,13 @@ showExtras :: App m => SolverGroup ->SymbolicOptions -> (Expr Buf, [Prop]) -> Ex
 showExtras solvers sOpts calldata expr = do
   when sOpts.showTree $ liftIO $ do
     putStrLn "=== Expression ===\n"
-    T.putStrLn $ formatExpr expr
+    T.putStrLn $ formatExpr $ Expr.simplify expr
     putStrLn ""
   when sOpts.showReachableTree $ do
     reached <- reachable solvers expr
     liftIO $ do
       putStrLn "=== Potentially Reachable Expression ===\n"
-      T.putStrLn (formatExpr . Expr.simplify . snd $ reached)
+      T.putStrLn (formatExpr . Expr.simplify $ reached)
       putStrLn ""
   when sOpts.getModels $ do
     liftIO $ putStrLn $ "=== Models for " <> show (Expr.numBranches expr) <> " branches ==="
@@ -773,9 +773,11 @@ symvmFromCommand cExecOpts sOpts cFileOpts sess calldata = do
                    then InitCode bs mempty
                    else RuntimeCode (ConcreteRuntimeCode bs)
     address = eaddr (.address) (SymAddr "entrypoint")
+    originAddr = eaddr (.origin) (SymAddr "origin")
+    originContr = abstractContract (RuntimeCode (SymbolicRuntimeCode mempty)) originAddr
     vm0 baseFee miner ts blockNum prevRan cd callvalue caller c baseState = makeVm $ VMOpts
       { contract       = c
-      , otherContracts = []
+      , otherContracts = [(originAddr, originContr)]
       , calldata       = cd
       , value          = callvalue
       , address        = address

@@ -35,11 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RPC fetching is now done through a single HTTPS session.
 - RPC cache is now more effective, as it's persisted through different
   threads of the symbolic execution
+- During running in --only-deployed mode, we forgot to force the address
+  in the constraints to be the one we computed it to be. Fixed.
 
 ## Changed
 - Updated forge to 1.2.3 and forge-std to 60acb7aa (1.9.7+)
 - We now gather Keccak axioms during `setUp()` and inject them into the SMT solver.
   This helps us finding more correct Keccak preimages
+- The "origin" address is now symbolic by default when running in `symbolic` mode
+- The printed expressions when running in `symbolic` mode are now simplified
 - The printed reachable expression is now simplified
 
 ## [0.55.1] - 2025-07-22
