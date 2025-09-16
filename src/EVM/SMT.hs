@@ -58,7 +58,7 @@ import EVM.Format (formatProp)
 import EVM.CSE
 import EVM.Expr (writeByte, bufLengthEnv, bufLength, minLength, inRange)
 import EVM.Expr qualified as Expr
-import EVM.Keccak (keccakAssumptions, keccakCompute)
+import EVM.Keccak (keccakAssumptions, concreteKeccaks, findKeccakPropsExprs)
 import EVM.Traversals
 import EVM.Types
 import EVM.Effects
@@ -174,8 +174,10 @@ assertPropsHelper simp psPreConc = do
 
     -- Keccak assertions: concrete values, distance between pairs, injectivity, etc.
     --      This will make sure concrete values of Keccak are asserted, if they can be computed (i.e. can be concretized)
-    keccAssump = keccakAssumptions psPreConc bufVals storeVals
-    keccComp = keccakCompute psPreConc bufVals storeVals
+    concreteKecc = concreteKeccaks psPreConc
+    allKeccaks = (findKeccakPropsExprs psElim bufVals storeVals) <> Set.map (Keccak . fst) concreteKecc
+    keccAssump = keccakAssumptions $ Set.toList allKeccaks
+    keccComp = [(PEq (Lit l) (Keccak buf)) | (buf, l) <- Set.toList concreteKecc]
     keccakAssertions = do
       assumps <- mapM assertSMT keccAssump
       comps <- mapM assertSMT keccComp
