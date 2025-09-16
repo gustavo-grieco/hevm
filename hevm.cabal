@@ -218,6 +218,7 @@ executable hevm
     witch,
     unliftio-core,
     split,
+    wreq,
 
 --- Test Helpers ---
 

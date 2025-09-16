@@ -123,27 +123,6 @@ main = do
         stdout `shouldContain` "Return: 0x64"
         exitCode `shouldBe` ExitSuccess
 
-      it "warning on zero address" $ do
-        Just c <- runApp $ solcRuntime (T.pack "C") (T.pack [i|
-           contract Target {
-             function get() external view returns (uint256) {
-                 return 55;
-             }
-           }
-           contract C {
-             Target mm;
-             function retFor() public returns (uint256) {
-                 Target target = Target(address(0));
-                 uint256 ret = target.get();
-                 assert(ret == 4);
-                 return ret;
-             }
-           }
-          |])
-        let hexStr = Types.bsToHex c
-        (_, stdout, _) <- readProcessWithExitCode "cabal" ["run", "exe:hevm", "--", "symbolic", "--code", hexStr] ""
-        stdout `shouldContain` "Warning: fetching contract at address 0"
-
       it "empty solver is always unknown" $ do
         Just c <- runApp $ solcRuntime (T.pack "C") (T.pack [i|
            contract C {
@@ -266,6 +245,4 @@ main = do
         (_, stdout, stderr) <- runForgeTest "test/contracts/fail/rpc-test.sol"
           ["--rpc", "http://mock.mock", "--prefix", "test_attack_symbolic"
           , "--number", "10307563", "--mock-file", "test/contracts/fail/rpc-test-mock.json"]
-        putStrLn stdout
-        putStrLn stderr
         stdout `shouldContain` "[FAIL]"

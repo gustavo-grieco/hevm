@@ -31,6 +31,7 @@ import Data.Tuple (swap)
 import Data.Vector qualified as V
 import Data.Vector.Storable qualified as VS
 import Data.Vector.Storable.ByteString (vectorToByteString)
+
 import EVM (makeVm, abstractContract, initialContract, getCodeLocation, isValidJumpDest)
 import EVM.Exec
 import EVM.Fetch qualified as Fetch
@@ -416,7 +417,7 @@ maxIterationsReached vm (Just maxIter) =
   let codelocation = getCodeLocation vm
       (iters, _) = view (at codelocation % non (0, [])) vm.iterations
   in if unsafeInto maxIter <= iters
-     then Map.lookup (codelocation, iters - 1) vm.cache.path
+     then Map.lookup (codelocation, iters - 1) vm.pathsVisited
      else Nothing
 
 askSmtItersReached :: VM Symbolic s -> Integer -> Bool
@@ -447,6 +448,7 @@ isLoopHead StackBased vm = let
 type Precondition s = VM Symbolic s -> Prop
 type Postcondition s = VM Symbolic s -> Expr End -> Prop
 
+-- Used only in testing
 checkAssert
   :: App m
   => SolverGroup
@@ -456,9 +458,24 @@ checkAssert
   -> [String]
   -> VeriOpts
   -> m (Expr End, [VerifyResult])
-checkAssert solvers errs c signature' concreteArgs opts =
-  verifyContract solvers c signature' concreteArgs opts Nothing (Just $ checkAssertions errs)
+checkAssert solvers errs c signature' concreteArgs opts = do
+  checkAssertWithSession solvers Nothing errs c signature' concreteArgs opts
 
+-- Used only in testing
+checkAssertWithSession
+  :: App m
+  => SolverGroup
+  -> Maybe Fetch.Session
+  -> [Word256]
+  -> ByteString
+  -> Maybe Sig
+  -> [String]
+  -> VeriOpts
+  -> m (Expr End, [VerifyResult])
+checkAssertWithSession solvers sess errs c signature' concreteArgs opts = do
+  verifyContractWithSession solvers sess c signature' concreteArgs opts Nothing (Just $ checkAssertions errs)
+
+-- Used only in testing
 getExprEmptyStore
   :: App m
   => SolverGroup
@@ -471,9 +488,10 @@ getExprEmptyStore solvers c signature' concreteArgs opts = do
   conf <- readConfig
   calldata <- mkCalldata signature' concreteArgs
   preState <- liftIO $ stToIO $ loadEmptySymVM (RuntimeCode (ConcreteRuntimeCode c)) (Lit 0) calldata
-  exprInter <- interpret (Fetch.oracle solvers opts.rpcInfo) opts.iterConf preState runExpr
+  exprInter <- interpret (Fetch.oracle solvers Nothing opts.rpcInfo) opts.iterConf preState runExpr
   if conf.simp then (pure $ Expr.simplify exprInter) else pure exprInter
 
+-- Used only in testing
 getExpr
   :: App m
   => SolverGroup
@@ -486,7 +504,7 @@ getExpr solvers c signature' concreteArgs opts = do
   conf <- readConfig
   calldata <- mkCalldata signature' concreteArgs
   preState <- liftIO $ stToIO $ abstractVM calldata c Nothing False
-  exprInter <- interpret (Fetch.oracle solvers opts.rpcInfo) opts.iterConf preState runExpr
+  exprInter <- interpret (Fetch.oracle solvers Nothing opts.rpcInfo) opts.iterConf preState runExpr
   if conf.simp then (pure $ Expr.simplify exprInter) else pure exprInter
 
 {- | Checks if an assertion violation has been encountered
@@ -542,8 +560,8 @@ mkCalldata Nothing _ = do
 mkCalldata (Just (Sig name types)) args =
   symCalldata name types args (AbstractBuf "txdata")
 
-verifyContract
-  :: App m
+-- Used only in testing
+verifyContract :: forall m . App m
   => SolverGroup
   -> ByteString
   -> Maybe Sig
@@ -553,9 +571,24 @@ verifyContract
   -> Maybe (Postcondition RealWorld)
   -> m (Expr End, [VerifyResult])
 verifyContract solvers theCode signature' concreteArgs opts maybepre maybepost = do
+  verifyContractWithSession solvers Nothing theCode signature' concreteArgs opts maybepre maybepost
+
+-- Used only in testing
+verifyContractWithSession :: forall m . App m
+  => SolverGroup
+  -> Maybe Fetch.Session
+  -> ByteString
+  -> Maybe Sig
+  -> [String]
+  -> VeriOpts
+  -> Maybe (Precondition RealWorld)
+  -> Maybe (Postcondition RealWorld)
+  -> m (Expr End, [VerifyResult])
+verifyContractWithSession solvers sess theCode signature' concreteArgs opts maybepre maybepost = do
   calldata <- mkCalldata signature' concreteArgs
   preState <- liftIO $ stToIO $ abstractVM calldata theCode maybepre False
-  verify solvers opts preState maybepost
+  let fetcher = Fetch.oracle solvers sess opts.rpcInfo
+  verify solvers fetcher opts preState maybepost
 
 -- | Stepper that parses the result of Stepper.runFully into an Expr End
 runExpr :: Stepper.Stepper Symbolic RealWorld (Expr End)
@@ -663,15 +696,15 @@ getPartials = mapMaybe go
 
 -- | Symbolically execute the VM and check all endstates against the
 -- postcondition, if available.
-verify
-  :: App m
+verify :: App m
   => SolverGroup
+  -> Fetch.Fetcher Symbolic m RealWorld
   -> VeriOpts
   -> VM Symbolic RealWorld
   -> Maybe (Postcondition RealWorld)
   -> m (Expr End, [VerifyResult])
-verify solvers opts preState maybepost = do
-  (expr, res, _) <- verifyInputs solvers opts (Fetch.oracle solvers opts.rpcInfo) preState maybepost
+verify solvers fetcher opts preState maybepost = do
+  (expr, res, _) <- verifyInputs solvers opts fetcher preState maybepost
   pure $ verifyResults preState expr res
 
 verifyResults :: VM Symbolic RealWorld -> Expr End -> [(SMTResult, Expr End)] -> (Expr End, [VerifyResult])
@@ -816,7 +849,7 @@ equivalenceCheck solvers bytecodeA bytecodeB opts calldata create = do
       conf <- readConfig
       let bytecode = if BS.null bs then BS.pack [0] else bs
       prestate <- liftIO $ stToIO $ abstractVM calldata bytecode Nothing create
-      expr <- interpret (Fetch.oracle solvers mempty) opts.iterConf prestate runExpr
+      expr <- interpret (Fetch.oracle solvers Nothing mempty) opts.iterConf prestate runExpr
       let simpl = if conf.simp then Expr.simplify expr else expr
       pure $ flattenExpr simpl
     oneQedOrNoQed :: EqIssues -> EqIssues
