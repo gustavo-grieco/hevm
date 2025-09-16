@@ -105,8 +105,9 @@ mkbench :: IO ByteString -> String -> Integer -> [Natural] -> Benchmark
 mkbench c name iters counts = localOption WallTime $ env c (bgroup name . bmarks)
   where
     bmarks c' = concat $ [
-       [ bench ("cvc5-" <> show i) $ nfIO $ runApp $ findPanics CVC5 i iters c'
-       , bench ("z3-" <> show i) $ nfIO $ runApp $ findPanics Z3 i iters c'
+       [ bench ("bitwuzla-" <> show i) $ nfIO $ runApp $ findPanics Bitwuzla i iters c'
+      --  , bench ("z3-" <> show i) $ nfIO $ runApp $ findPanics Z3 i iters c'
+      --  , bench ("cvc5-" <> show i) $ nfIO $ runApp $ findPanics CVC5 i iters c'
        ]
        | i <- counts
      ]
