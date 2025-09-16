@@ -144,7 +144,7 @@ it may be valuable to run static analysis tools alongside symbolic execution too
 such as hevm.
 
 Finally,
-[SMTChecker](https://github.com/ethereum/solidity/blob/develop/docs/smtchecker.rst)
+[SMTChecker](https://github.com/argotorg/solidity/blob/develop/docs/smtchecker.rst)
 may also be interesting to run alongside hevm. SMTChecker is very different
 from both approaches detailed above. While SMTChecker is capable of reliably
 finding both reentrancy and loop-related bugs, the tools above can only do so

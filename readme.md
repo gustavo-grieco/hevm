@@ -13,7 +13,7 @@ We have a public matrix chat room
 
 ## Installing via Static Binaries
 Static binaries for x86 linux and macos are available for each
-[release](https://github.com/ethereum/hevm/releases). These binaries expect to have `z3` installed.
+[release](https://github.com/argotorg/hevm/releases). These binaries expect to have `z3` installed.
 You can install `z3` via your package manager, such as `apt install z3` on Ubuntu,
 or `brew install z3` on macOS.
 
@@ -38,7 +38,7 @@ and can be installed via:
 
 hevm flake can be installed directly from the `main` branch of this repo via the following command:
 ```plain
-nix profile install github:ethereum/hevm
+nix profile install github:argotorg/hevm
 ```
 
 ## Development

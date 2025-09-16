@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The "origin" address is now symbolic by default when running in `symbolic` mode
 - The printed expressions when running in `symbolic` mode are now simplified
 - The printed reachable expression is now simplified
+- hevm and solidity has been moved to under github.com/argotorg
 
 ## [0.55.1] - 2025-07-22
 

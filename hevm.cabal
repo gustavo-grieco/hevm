@@ -8,7 +8,7 @@ synopsis:
 description:
   Symbolic EVM semantics in Haskell.
 homepage:
-  https://github.com/ethereum/hevm
+  https://github.com/argotorg/hevm
 license:
   AGPL-3.0-only
 author:
@@ -47,7 +47,7 @@ flag debug
 
 source-repository head
   type:     git
-  location: https://github.com/ethereum/hevm.git
+  location: https://github.com/argotorg/hevm.git
 
 common shared
   if flag(ci)

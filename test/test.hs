@@ -4826,7 +4826,7 @@ tests = testGroup "hevm"
           assertBoolM "Must have a difference" (any (isCex . fst) eq.res)
           let cexs = mapMaybe (getCex . fst) eq.res
           assertEqualM "Must have exactly one cex" (length cexs) 1
-      -- check bug https://github.com/ethereum/hevm/issues/679
+      -- check bug https://github.com/argotorg/hevm/issues/679
       , test "eq-issue-with-length-cex-bug679" $ do
         let a = fromJust (hexByteString "5f610100526020610100f3")
             b = fromJust (hexByteString "5f356101f40115610100526020610100f3")
