@@ -246,3 +246,4 @@ main = do
           ["--rpc", "http://mock.mock", "--prefix", "test_attack_symbolic"
           , "--number", "10307563", "--mock-file", "test/contracts/fail/rpc-test-mock.json"]
         stdout `shouldContain` "[FAIL]"
+        stderr `shouldNotContain` "CallStack"
