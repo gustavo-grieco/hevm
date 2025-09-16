@@ -51,7 +51,7 @@ function name with `prove_`, which we did.
 ### Building
 
 We now need a copy of hevm (see
-[releases](https://github.com/ethereum/hevm/releases)) and the SMT solver z3,
+[releases](https://github.com/argotorg/hevm/releases)) and the SMT solver z3,
 which can be installed e.g. with `apt-get` on ubuntu/debian or `homebrew` on Mac,
 and a copy of [Foundry](https://getfoundry.sh/):
 
@@ -60,7 +60,7 @@ $ sudo apt-get install z3  # install z3
 $ curl -L https://foundry.paradigm.xyz | bash # install foundryup
 $ foundryup # install forge and other foundry binaries
 $ mkdir mytest && cd mytest
-$ wget https://github.com/ethereum/hevm/releases/download/release/0.54.2/hevm-x86_64-linux
+$ wget https://github.com/argotorg/hevm/releases/download/release/0.54.2/hevm-x86_64-linux
 $ chmod +x ./hevm-x86_64-linux
 $ forge init .
 $ cat <<EOF > src/contract.sol

@@ -1195,7 +1195,7 @@ prettyCalldata cex buf sig types = headErr errSig (T.splitOn "(" sig) <> "(" <> 
 -- concrete value The intuition here is that if we still have symbolic values
 -- in our calldata expression after substituting in our cex, then they can have
 -- any value and we can safely pick a random value. This is a bit unsatisfying,
--- we should really be doing smth like: https://github.com/ethereum/hevm/issues/334
+-- we should really be doing smth like: https://github.com/argotorg/hevm/issues/334
 -- but it's probably good enough for now
 defaultSymbolicValues :: Err (Expr a) -> Err (Expr a)
 defaultSymbolicValues = \case
