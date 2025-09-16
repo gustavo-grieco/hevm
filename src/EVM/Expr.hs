@@ -1353,6 +1353,7 @@ simplifyProp prop =
     go (PLEq a (Max b _)) | a == b = PBool True
     go (PLEq a (Max _ b)) | a == b = PBool True
     go (PLEq (Sub a b) c) | a == c = PLEq b a
+    go (PLEq a (Lit 0)) = peq (Lit 0) a
     go (PLT (Max (Lit a) b) (Lit c)) | a < c = PLT b (Lit c)
     go (PLT (Lit 0) (Eq a b)) = peq a b
     go (PLEq a b) = pleq a b
