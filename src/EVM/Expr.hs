@@ -1353,6 +1353,7 @@ simplifyProp prop =
     go (PLEq a (Max b _)) | a == b = PBool True
     go (PLEq a (Max _ b)) | a == b = PBool True
     go (PLEq (Sub a b) c) | a == c = PLEq b a
+    go (PLEq a (Lit 0)) = peq (Lit 0) a
     go (PLT (Max (Lit a) b) (Lit c)) | a < c = PLT b (Lit c)
     go (PLT (Lit 0) (Eq a b)) = peq a b
     go (PLEq a b) = pleq a b
@@ -1379,13 +1380,13 @@ simplifyProp prop =
 
     -- Empty buf
     go (PEq (Lit 0) (BufLength k)) = peq k (ConcreteBuf "")
-    go (PEq (Lit 0) (Or a b)) = peq a (Lit 0) `PAnd` peq b (Lit 0)
+    go (PEq (Lit 0) (Or a b)) = peq (Lit 0) a `PAnd` peq (Lit 0) b
 
     -- PEq rewrites (notice -- GT/GEq is always rewritten to LT by simplify)
     go (PEq (Lit 1) (IsZero (LT a b))) = PLT a b
     go (PEq (Lit 1) (IsZero (LEq a b))) = PLEq a b
     go (PEq (Lit 0) (IsZero a)) = PLT (Lit 0) a
-    go (PEq a1 (Add a2 y)) | a1 == a2 = peq y (Lit 0)
+    go (PEq a1 (Add a2 y)) | a1 == a2 = peq (Lit 0) y
 
     -- solc specific stuff
     go (PLT (Lit 0) (IsZero (Eq a b))) = PNeg (peq a b)
