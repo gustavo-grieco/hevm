@@ -46,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The printed expressions when running in `symbolic` mode are now simplified
 - The printed reachable expression is now simplified
 - hevm and solidity has been moved to under github.com/argotorg
+- Extra range constraints for ABI symbolic types are no longer added. They are
+  not needed as they are enforced in the bytecode.
 
 ## [0.55.1] - 2025-07-22
 
