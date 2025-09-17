@@ -44,7 +44,7 @@ maxLitSigned :: W256
 maxLitSigned = 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 minLitSigned :: W256
-minLitSigned = 0x1000000000000000000000000000000000000000000000000000000000000000
+minLitSigned = 0x8000000000000000000000000000000000000000000000000000000000000000
 
 -- ** Stack Ops ** ---------------------------------------------------------------------------------
 
