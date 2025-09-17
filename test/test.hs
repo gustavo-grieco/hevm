@@ -1159,6 +1159,40 @@ tests = testGroup "hevm"
         assertEqualM "number of counterexamples" 1 numCexes
         assertEqualM "number of errors" 0 numErrs
         assertEqualM "number of qed-s" 0 numQeds
+    , test "signed-int8-range" $ do
+        Just c <- solcRuntime "C" [i|
+          contract C {
+            function fun(int8 x) public {
+              int256 y = x;
+              assert (y != 1000);
+            }
+          } |]
+        let sig = Just $ Sig "fun(int8)" [AbiIntType 8]
+        (e, ret) <- withDefaultSolver $ \s -> checkAssert s defaultPanicCodes c sig [] defaultVeriOpts
+        assertBoolM "The expression must not be partial" $ not (Expr.containsNode isPartial e)
+        let numCexes = sum $ map (fromEnum . isCex) ret
+        let numErrs = sum $ map (fromEnum . isError) ret
+        let numQeds = sum $ map (fromEnum . isQed) ret
+        assertEqualM "number of counterexamples" 0 numCexes
+        assertEqualM "number of errors" 0 numErrs
+        assertEqualM "number of qed-s" 1 numQeds
+    , test "unsigned-int8-range" $ do
+        Just c <- solcRuntime "C" [i|
+          contract C {
+            function fun(uint8 x) public {
+              uint256 y = x;
+              assert (y != 1000);
+            }
+          } |]
+        let sig = Just $ Sig "fun(uint8)" [AbiUIntType 8]
+        (e, ret) <- withDefaultSolver $ \s -> checkAssert s defaultPanicCodes c sig [] defaultVeriOpts
+        assertBoolM "The expression must not be partial" $ not (Expr.containsNode isPartial e)
+        let numCexes = sum $ map (fromEnum . isCex) ret
+        let numErrs = sum $ map (fromEnum . isError) ret
+        let numQeds = sum $ map (fromEnum . isQed) ret
+        assertEqualM "number of counterexamples" 0 numCexes
+        assertEqualM "number of errors" 0 numErrs
+        assertEqualM "number of qed-s" 1 numQeds
     , test "negative-numbers-zero-comp" $ do
         Just c <- solcRuntime "C" [i|
             contract C {
