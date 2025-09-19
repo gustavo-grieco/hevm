@@ -2,7 +2,7 @@
     Module: EVM.Keccak
     Description: Expr passes to determine Keccak assumptions
 -}
-module EVM.Keccak (keccakAssumptions, keccakCompute) where
+module EVM.Keccak (keccakAssumptions, concreteKeccaks, findKeccakPropsExprs) where
 
 import Control.Monad.State
 import Data.Set (Set)
@@ -18,9 +18,6 @@ newtype KeccakStore = KeccakStore
   { keccakExprs :: Set (Expr EWord) }
   deriving (Show)
 
-initState :: KeccakStore
-initState = KeccakStore { keccakExprs = Set.empty }
-
 keccakFinder :: forall a. Expr a -> State KeccakStore ()
 keccakFinder = \case
   e@(Keccak _) -> modify (\s -> s{keccakExprs=Set.insert e s.keccakExprs})
@@ -32,19 +29,17 @@ findKeccakExpr e = mapExprM_ keccakFinder e
 findKeccakProp :: Prop -> State KeccakStore ()
 findKeccakProp p = mapPropM_ keccakFinder p
 
-findKeccakPropsExprs :: [Prop] -> [Expr Buf]  -> [Expr Storage]-> State KeccakStore ()
-findKeccakPropsExprs ps bufs stores = do
-  mapM_ findKeccakProp ps
-  mapM_ findKeccakExpr bufs
-  mapM_ findKeccakExpr stores
+findKeccakPropsExprs :: [Prop] -> [Expr Buf] -> [Expr Storage] -> Set (Expr EWord)
+findKeccakPropsExprs ps bufs stores = (execState action (KeccakStore mempty)).keccakExprs
+  where
+    action = do
+      mapM_ findKeccakProp ps
+      mapM_ findKeccakExpr bufs
+      mapM_ findKeccakExpr stores
 
 
 uniquePairs :: [a] -> [(a,a)]
 uniquePairs xs = [(x,y) | (x:ys) <- Data.List.tails xs, y <- ys]
-
-minProp :: Expr EWord -> Prop
-minProp k@(Keccak _) = PGT k (Lit 256)
-minProp _ = internalError "expected keccak expression"
 
 injProp :: (Expr EWord, Expr EWord) -> Prop
 injProp (k1@(Keccak b1), k2@(Keccak b2)) =
@@ -59,14 +54,17 @@ injProp _ = internalError "expected keccak expression"
 --   2. Injectivity: That keccak is an injective function (we avoid quantifiers
 --      here by making this claim for each unique pair of keccak invocations
 --      discovered in the input expressions)
-keccakAssumptions :: [Prop] -> [Expr Buf] -> [Expr Storage] -> [Prop]
-keccakAssumptions ps bufs stores = injectivity <> minValue <> minDiffOfPairs
+keccakAssumptions :: [Expr EWord] -> [Prop]
+keccakAssumptions keccaks = injectivity <> minValue <> minDiffOfPairs
   where
-    (_, st) = runState (findKeccakPropsExprs ps bufs stores) initState
-    ks = Set.toList $ Set.map concretizeKeccakParam st.keccakExprs
+    ks = map concretizeKeccakParam keccaks
     keccakPairs = uniquePairs ks
     injectivity = map injProp keccakPairs
     minValue = map minProp ks
+      where
+        minProp :: Expr EWord -> Prop
+        minProp k@(Keccak _) = PGT k (Lit 256)
+        minProp _ = internalError "expected keccak expression"
     minDiffOfPairs = map minDistance keccakPairs
      where
       minDistance :: (Expr EWord, Expr EWord) -> Prop
@@ -80,24 +78,20 @@ concretizeKeccakParam :: Expr EWord -> Expr EWord
 concretizeKeccakParam (Keccak buf) = Keccak (concKeccakSimpExpr buf)
 concretizeKeccakParam _ = internalError "Cannot happen"
 
-compute :: forall a. Expr a -> Set Prop
-compute = \case
-  Keccak buf -> do
-    let b = concKeccakSimpExpr buf
-    case keccak b of
-      lit@(Lit _) -> Set.singleton (PEq lit (Keccak b))
-      _ -> Set.empty
-  _ -> Set.empty
 
-computeKeccakExpr :: forall a. Expr a -> Set Prop
-computeKeccakExpr e = foldExpr compute Set.empty e
+type KeccakValue = (Expr Buf, W256)
+concreteKeccaks :: [Prop] -> Set KeccakValue
+concreteKeccaks ps = foldMap concreteKeccakProp ps
+  where
+  concreteKeccakProp :: Prop -> Set KeccakValue
+  concreteKeccakProp p = foldProp compute Set.empty p
 
-computeKeccakProp :: Prop -> Set Prop
-computeKeccakProp p = foldProp compute Set.empty p
+  compute :: forall a. Expr a -> Set KeccakValue
+  compute = \case
+    Keccak buf -> do
+      let b = concKeccakSimpExpr buf
+      case b of
+        buff@(ConcreteBuf bs) -> Set.singleton (buff, keccak' bs)
+        _ -> Set.empty
+    _ -> Set.empty
 
-keccakCompute :: [Prop] -> [Expr Buf] -> [Expr Storage] -> [Prop]
-keccakCompute ps buf stores =
-  Set.toList $
-    (foldMap computeKeccakProp ps) <>
-    (foldMap computeKeccakExpr buf) <>
-    (foldMap computeKeccakExpr stores)

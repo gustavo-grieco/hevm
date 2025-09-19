@@ -24,7 +24,7 @@ If you installed cvc5 and want to use it, you will need to pass the flag
 want to try it out.
 
 Finally, download the static hevm binary from [the GitHub
-repository](https://github.com/ethereum/hevm/releases/) for your platform and
+repository](https://github.com/argotorg/hevm/releases/) for your platform and
 put it in your path so it can be executed via typing "hevm".
 
 # How to Check if it Works

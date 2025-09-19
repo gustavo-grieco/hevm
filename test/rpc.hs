@@ -10,8 +10,7 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Vector qualified as V
 
-import Optics.Core
-import EVM (makeVm, symbolify, forceLit)
+import EVM (makeVm, symbolify)
 import EVM.ABI
 import EVM.Fetch
 import EVM.SMT
@@ -38,34 +37,40 @@ main = defaultMain tests
 tests :: TestTree
 tests = testGroup "rpc"
   [ testGroup "Block Parsing Tests"
-    [ testCase "pre-merge-block" $ do
+    [ test "pre-merge-block" $ do
         let block = BlockNumber 15537392
-        (cb, numb, basefee, prevRan) <- fetchBlockFrom block testRpc >>= \case
-                      Nothing -> internalError "Could not fetch block"
-                      Just Block{..} -> pure ( coinbase
-                                                   , number
-                                                   , baseFee
-                                                   , prevRandao
-                                                   )
+        conf <- readConfig
+        sess <- mkSession
+        liftIO $ do
+          (cb, numb, basefee, prevRan) <- fetchBlockWithSession conf sess block testRpc >>= \case
+                        Nothing -> internalError "Could not fetch block"
+                        Just Block{..} -> pure ( coinbase
+                                                     , number
+                                                     , baseFee
+                                                     , prevRandao
+                                                     )
 
-        assertEqual "coinbase" (LitAddr 0xea674fdde714fd979de3edf0f56aa9716b898ec8) cb
-        assertEqual "number" (BlockNumber (forceLit numb)) block
-        assertEqual "basefee" 38572377838 basefee
-        assertEqual "prevRan" 11049842297455506 prevRan
-    , testCase "post-merge-block" $ do
-        let block = BlockNumber 16184420
-        (cb, numb, basefee, prevRan) <- fetchBlockFrom block testRpc >>= \case
-                      Nothing -> internalError "Could not fetch block"
-                      Just Block{..} -> pure ( coinbase
-                                                   , number
-                                                   , baseFee
-                                                   , prevRandao
-                                                   )
+          assertEqual "coinbase" (LitAddr 0xea674fdde714fd979de3edf0f56aa9716b898ec8) cb
+          assertEqual "number" (BlockNumber (forceLit numb)) block
+          assertEqual "basefee" 38572377838 basefee
+          assertEqual "prevRan" 11049842297455506 prevRan
+    , test "post-merge-block" $ do
+        conf <- readConfig
+        sess <- mkSession
+        liftIO $ do
+          let block = BlockNumber 16184420
+          (cb, numb, basefee, prevRan) <- fetchBlockWithSession conf sess block testRpc >>= \case
+                        Nothing -> internalError "Could not fetch block"
+                        Just Block{..} -> pure ( coinbase
+                                                     , number
+                                                     , baseFee
+                                                     , prevRandao
+                                                     )
 
-        assertEqual "coinbase" (LitAddr 0x690b9a9e9aa1c9db991c7721a92d351db4fac990) cb
-        assertEqual "number" (BlockNumber (forceLit numb)) block
-        assertEqual "basefee" 22163046690 basefee
-        assertEqual "prevRan" 0x2267531ab030ed32fd5f2ef51f81427332d0becbd74fe7f4cd5684ddf4b287e0 prevRan
+          assertEqual "coinbase" (LitAddr 0x690b9a9e9aa1c9db991c7721a92d351db4fac990) cb
+          assertEqual "number" (BlockNumber (forceLit numb)) block
+          assertEqual "basefee" 22163046690 basefee
+          assertEqual "prevRan" 0x2267531ab030ed32fd5f2ef51f81427332d0becbd74fe7f4cd5684ddf4b287e0 prevRan
     ]
   , testGroup "execution with remote state"
     -- execute against remote state from a ds-test harness
@@ -81,9 +86,12 @@ tests = testGroup "rpc"
           blockNum = 16198552
           wad = 0x999999999999999999
           calldata' = ConcreteBuf $ abiMethod "transfer(address,uint256)" (AbiTuple (V.fromList [AbiAddress (Addr 0xdead), AbiUInt 256 wad]))
-        vm <- liftIO $ weth9VM blockNum (calldata', [])
+          rpcDat = Just (BlockNumber blockNum, testRpc)
+          rpcInfo :: RpcInfo = mempty { blockNumURL = rpcDat }
+        sess <- mkSession
+        vm <- weth9VM sess blockNum (calldata', [])
         postVm <- withSolvers Z3 1 1 Nothing $ \solvers ->
-          Stepper.interpret (oracle solvers (Just (BlockNumber blockNum, testRpc))) vm Stepper.runFully
+          Stepper.interpret (oracle solvers (Just sess) rpcInfo) vm Stepper.runFully
         let
           wethStore = (fromJust $ Map.lookup (LitAddr 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) postVm.env.contracts).storage
           wethStore' = case wethStore of
@@ -105,33 +113,37 @@ tests = testGroup "rpc"
           blockNum = 16198552
           postc _ (Failure _ _ (Revert _)) = PBool False
           postc _ _ = PBool True
-        vm <- liftIO $ weth9VM blockNum calldata'
-        (_, [Cex (_, model)]) <- withSolvers Z3 1 1 Nothing $ \solvers ->
-          verify solvers (rpcVeriOpts (BlockNumber blockNum, testRpc)) (symbolify vm) (Just postc)
+        sess <- mkSession
+        vm <- weth9VM sess blockNum calldata'
+        (_, [Cex (_, model)]) <- withSolvers Z3 1 1 Nothing $ \s ->
+          let rpcInfo ::RpcInfo =  mempty { blockNumURL = Just (BlockNumber blockNum, testRpc) }
+          in verify s (oracle s (Just sess) rpcInfo) (rpcVeriOpts (fromJust rpcInfo.blockNumURL)) (symbolify vm) (Just postc)
         liftIO $ assertBool "model should exceed caller balance" (getVar model "arg2" >= 695836005599316055372648)
     ]
   ]
 
 -- call into WETH9 from 0xf04a... (a large holder)
-weth9VM :: W256 -> (Expr Buf, [Prop]) -> IO (VM Concrete RealWorld)
-weth9VM blockNum calldata' = do
+weth9VM :: App m => Session -> W256 -> (Expr Buf, [Prop]) -> m (VM Concrete RealWorld)
+weth9VM sess blockNum calldata' = do
   let
     caller' = LitAddr 0xf04a5cc80b1e94c69b48f5ee68a08cd2f09a7c3e
     weth9 = Addr 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
     callvalue' = Lit 0
-  vmFromRpc blockNum calldata' callvalue' caller' weth9
+  vmFromRpc sess blockNum calldata' callvalue' caller' weth9
 
-vmFromRpc :: W256 -> (Expr Buf, [Prop]) -> Expr EWord -> Expr EAddr -> Addr -> IO (VM Concrete RealWorld)
-vmFromRpc blockNum calldata callvalue caller address = do
-  ctrct <- fetchContractFrom (BlockNumber blockNum) testRpc address >>= \case
+vmFromRpc :: App m => Session -> W256 -> (Expr Buf, [Prop]) -> Expr EWord -> Expr EAddr -> Addr -> m (VM Concrete RealWorld)
+vmFromRpc sess blockNum calldata callvalue caller address = do
+  conf <- readConfig
+  ctrct <- liftIO $ fetchContractWithSession conf sess (BlockNumber blockNum) testRpc address >>= \case
         Nothing -> internalError $ "contract not found: " <> show address
         Just contract' -> pure contract'
 
-  blk <- fetchBlockFrom (BlockNumber blockNum) testRpc >>= \case
+  liftIO $ addFetchCache sess address ctrct
+  blk <- liftIO $ fetchBlockWithSession conf sess (BlockNumber blockNum) testRpc >>= \case
     Nothing -> internalError "could not fetch block"
     Just b -> pure b
 
-  stToIO $ (makeVm $ VMOpts
+  liftIO $ stToIO (makeVm $ VMOpts
     { contract       = ctrct
     , otherContracts = []
     , calldata       = calldata
@@ -158,10 +170,11 @@ vmFromRpc blockNum calldata callvalue caller address = do
     , allowFFI       = False
     , freshAddresses = 0
     , beaconRoot     = 0
-    }) <&> set (#cache % #fetched % at address) (Just ctrct)
+    })
 
 testRpc :: Text
 testRpc = "https://eth-mainnet.alchemyapi.io/v2/vpeKFsEF6PHifHzdtcwXSDbhV3ym5Ro4"
 
 testRpcInfo :: RpcInfo
-testRpcInfo = Just (BlockNumber 16198552, testRpc)
+testRpcInfo = let rpcDat = Just (BlockNumber 16198552, testRpc)
+  in mempty { blockNumURL = rpcDat }

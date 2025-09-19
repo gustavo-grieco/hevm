@@ -6,7 +6,7 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     foundry.url = "github:shazow/foundry.nix/stable";
     solidity = {
-      url = "github:ethereum/solidity/8a97fa7a1db1ec509221ead6fea6802c684ee887";
+      url = "github:argotorg/solidity/8a97fa7a1db1ec509221ead6fea6802c684ee887";
       flake = false;
     };
     ethereum-tests = {

@@ -70,15 +70,14 @@ import EVM.Solidity
 import EVM.Solvers
 import EVM.Stepper qualified as Stepper
 import EVM.SymExec
-import EVM.Test.Tracing qualified as Tracing
+import EVM.Test.FuzzSymExec qualified as FuzzSymExec
 import EVM.Test.Utils
 import EVM.Traversals
 import EVM.Types hiding (Env)
 import EVM.Effects
 import EVM.UnitTest (writeTrace, printWarnings)
 import EVM.Expr (maybeLitByteSimp)
-import Data.Text.Internal.Builder (toLazyText)
-import EVM.Keccak (keccakCompute)
+import EVM.Keccak (concreteKeccaks)
 
 testEnv :: Env
 testEnv = Env { config = defaultConfig {
@@ -138,7 +137,7 @@ runSubSet p = defaultMain . applyPattern p $ tests
 
 tests :: TestTree
 tests = testGroup "hevm"
-  [ Tracing.tests
+  [ FuzzSymExec.tests
   , testGroup "simplify-storage"
     [ test "simplify-storage-array-only-static" $ do
        Just c <- solcRuntime "MyContract"
@@ -1160,6 +1159,40 @@ tests = testGroup "hevm"
         assertEqualM "number of counterexamples" 1 numCexes
         assertEqualM "number of errors" 0 numErrs
         assertEqualM "number of qed-s" 0 numQeds
+    , test "signed-int8-range" $ do
+        Just c <- solcRuntime "C" [i|
+          contract C {
+            function fun(int8 x) public {
+              int256 y = x;
+              assert (y != 1000);
+            }
+          } |]
+        let sig = Just $ Sig "fun(int8)" [AbiIntType 8]
+        (e, ret) <- withDefaultSolver $ \s -> checkAssert s defaultPanicCodes c sig [] defaultVeriOpts
+        assertBoolM "The expression must not be partial" $ not (Expr.containsNode isPartial e)
+        let numCexes = sum $ map (fromEnum . isCex) ret
+        let numErrs = sum $ map (fromEnum . isError) ret
+        let numQeds = sum $ map (fromEnum . isQed) ret
+        assertEqualM "number of counterexamples" 0 numCexes
+        assertEqualM "number of errors" 0 numErrs
+        assertEqualM "number of qed-s" 1 numQeds
+    , test "unsigned-int8-range" $ do
+        Just c <- solcRuntime "C" [i|
+          contract C {
+            function fun(uint8 x) public {
+              uint256 y = x;
+              assert (y != 1000);
+            }
+          } |]
+        let sig = Just $ Sig "fun(uint8)" [AbiUIntType 8]
+        (e, ret) <- withDefaultSolver $ \s -> checkAssert s defaultPanicCodes c sig [] defaultVeriOpts
+        assertBoolM "The expression must not be partial" $ not (Expr.containsNode isPartial e)
+        let numCexes = sum $ map (fromEnum . isCex) ret
+        let numErrs = sum $ map (fromEnum . isError) ret
+        let numQeds = sum $ map (fromEnum . isQed) ret
+        assertEqualM "number of counterexamples" 0 numCexes
+        assertEqualM "number of errors" 0 numErrs
+        assertEqualM "number of qed-s" 1 numQeds
     , test "negative-numbers-zero-comp" $ do
         Just c <- solcRuntime "C" [i|
             contract C {
@@ -1838,7 +1871,7 @@ tests = testGroup "hevm"
           let calldata = (WriteWord (Lit 0x0) (Var "u") (ConcreteBuf ""), [])
           initVM <- liftIO $ stToIO $ abstractVM calldata initCode Nothing True
           let iterConf = IterConfig {maxIter=Nothing, askSmtIters=1, loopHeuristic=StackBased }
-          expr <- Expr.simplify <$> interpret (Fetch.oracle s Nothing) iterConf initVM runExpr
+          expr <- Expr.simplify <$> interpret (Fetch.oracle s Nothing mempty) iterConf initVM runExpr
           assertBoolM "unexptected partial execution" (not $ Expr.containsNode isPartial expr)
     , test "mixed-concrete-symbolic-args" $ do
         Just c <- solcRuntime "C"
@@ -1880,7 +1913,7 @@ tests = testGroup "hevm"
         let sig = (Just $ Sig "foo(address,uint256)" [AbiAddressType, AbiUIntType 256])
         (e, res) <- withDefaultSolver $
           \s -> checkAssert s defaultPanicCodes c sig [] defaultVeriOpts
-        liftIO $ printWarnings [e] res "the contracts under test"
+        liftIO $ printWarnings Nothing [e] res "the contracts under test"
         assertEqualM "Must be QED" res [Qed]
     , test "extcodesize-symbolic2" $ do
         Just c <- solcRuntime "C"
@@ -1898,7 +1931,7 @@ tests = testGroup "hevm"
         let sig = (Just $ Sig "foo(address,uint256)" [AbiAddressType, AbiUIntType 256])
         (e, res@[Cex _]) <- withDefaultSolver $
           \s -> checkAssert s defaultPanicCodes c sig [] defaultVeriOpts
-        liftIO $ printWarnings [e] res "the contracts under test"
+        liftIO $ printWarnings Nothing [e] res "the contracts under test"
     , test "jump-into-symbolic-region" $ do
         let
           -- our initCode just jumps directly to the end
@@ -1929,9 +1962,9 @@ tests = testGroup "hevm"
         withDefaultSolver $ \s -> do
           vm <- liftIO $ stToIO $ loadSymVM runtimecode (Lit 0) initCode False
           let iterConf = IterConfig {maxIter=Nothing, askSmtIters=1, loopHeuristic=StackBased }
-          expr <- Expr.simplify <$> interpret (Fetch.oracle s Nothing) iterConf vm runExpr
+          expr <- Expr.simplify <$> interpret (Fetch.oracle s Nothing mempty) iterConf vm runExpr
           case expr of
-            Partial _ _ (JumpIntoSymbolicCode _ _) -> assertBoolM "" True
+            Partial _ _ (JumpIntoSymbolicCode _ _ _) -> assertBoolM "" True
             _ -> assertBoolM "did not encounter expected partial node" False
     ]
   , testGroup "Dapp-Tests"
@@ -1969,7 +2002,7 @@ tests = testGroup "hevm"
               , ("test/contracts/fail/symbolicFail.sol",      "prove_symb_fail_allrev_selector.*", (False, False))
               , ("test/contracts/fail/symbolicFail.sol",      "prove_symb_fail_somerev_selector.*", (False, True))]
         forM_ cases $ \(testFile, match, expected) -> do
-          actual <- runSolidityTestCustom testFile match Nothing Nothing False Nothing Foundry
+          actual <- runSolidityTestCustom testFile match Nothing Nothing False mempty Foundry
           putStrLnM $ "Test result for " <> testFile <> " match: " <> T.unpack match <> ": " <> show actual
           assertEqualM "Must match" expected actual
     , test "Trivial-Fail" $ do
@@ -2002,14 +2035,14 @@ tests = testGroup "hevm"
         runSolidityTest testFile "prove_trivial" >>= assertEqualM "prove_trivial" (False, False)
         runSolidityTest testFile "prove_trivial_dstest" >>= assertEqualM "prove_trivial_dstest" (False, False)
         runSolidityTest testFile "prove_add" >>= assertEqualM "prove_add" (False, True)
-        runSolidityTestCustom testFile "prove_smtTimeout" (Just 1) Nothing False Nothing Foundry
+        runSolidityTestCustom testFile "prove_smtTimeout" (Just 1) Nothing False mempty Foundry
           >>= assertEqualM "prove_smtTimeout" (True, False)
         runSolidityTest testFile "prove_multi" >>= assertEqualM "prove_multi" (False, True)
         runSolidityTest testFile "prove_distributivity" >>= assertEqualM "prove_distributivity" (False, True)
     , test "Loop-Tests" $ do
         let testFile = "test/contracts/pass/loops.sol"
-        runSolidityTestCustom testFile "prove_loop" Nothing (Just 10) False Nothing Foundry  >>= assertEqualM "test result" (True, False)
-        runSolidityTestCustom testFile "prove_loop" Nothing (Just 100) False Nothing Foundry >>= assertEqualM "test result" (False, False)
+        runSolidityTestCustom testFile "prove_loop" Nothing (Just 10) False mempty Foundry  >>= assertEqualM "test result" (True, False)
+        runSolidityTestCustom testFile "prove_loop" Nothing (Just 100) False mempty Foundry >>= assertEqualM "test result" (False, False)
     , test "Cheat-Codes-Pass" $ do
         let testFile = "test/contracts/pass/cheatCodes.sol"
         runSolidityTest testFile ".*" >>= assertEqualM "test result" (True, False)
@@ -2156,7 +2189,7 @@ tests = testGroup "hevm"
             let code = case ca.code of
                   RuntimeCode (ConcreteRuntimeCode c') -> c'
                   _ -> internalError "expected concrete code"
-            assertEqualM "balance mismatch" (Var "arg1") ca.balance
+            assertEqualM "balance mismatch" (Var "arg1") (Expr.simplify ca.balance)
             assertEqualM "code mismatch" (stripBytecodeMetadata a) (stripBytecodeMetadata code)
             assertEqualM "nonce mismatch" (Just 1) ca.nonce
           _ -> assertBoolM "too many success nodes!" False
@@ -4162,7 +4195,7 @@ tests = testGroup "hevm"
                     <&> set (#state % #callvalue) (Lit 0)
                     <&> over (#env % #contracts)
                        (Map.insert aAddr (initialContract (RuntimeCode (ConcreteRuntimeCode a))))
-            verify s defaultVeriOpts vm (Just $ checkAssertions defaultPanicCodes)
+            verify s (Fetch.oracle s Nothing mempty) defaultVeriOpts vm (Just $ checkAssertions defaultPanicCodes)
 
           let storeCex = cex.store
               testCex = case (Map.lookup cAddr storeCex, Map.lookup aAddr storeCex) of
@@ -4238,7 +4271,7 @@ tests = testGroup "hevm"
           let yulsafeDistributivity = hex "6355a79a6260003560e01c14156016576015601f565b5b60006000fd60a1565b603d602d604435600435607c565b6039602435600435607c565b605d565b6052604b604435602435605d565b600435607c565b141515605a57fe5b5b565b6000828201821115151560705760006000fd5b82820190505b92915050565b6000818384048302146000841417151560955760006000fd5b82820290505b92915050565b"
           calldata <- mkCalldata (Just (Sig "distributivity(uint256,uint256,uint256)" [AbiUIntType 256, AbiUIntType 256, AbiUIntType 256])) []
           vm <- liftIO $ stToIO $ abstractVM calldata yulsafeDistributivity Nothing False
-          (_, [Qed]) <-  withDefaultSolver $ \s -> verify s defaultVeriOpts vm (Just $ checkAssertions defaultPanicCodes)
+          (_, [Qed]) <-  withDefaultSolver $ \s -> verify s (Fetch.oracle s Nothing mempty) defaultVeriOpts vm (Just $ checkAssertions defaultPanicCodes)
           putStrLnM "Proven"
         ,
         test "safemath-distributivity-sol" $ do
@@ -4510,7 +4543,7 @@ tests = testGroup "hevm"
         let simp = Expr.simplifyProps [p]
         assertEqualM "Must simplify to PBool True" simp []
         withDefaultSolver $ \s -> do
-          (res, _) <- checkSatWithProps s [p]
+          res <- checkSatWithProps s [p]
           _ <- case res of
             Cex c -> pure c
             _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4518,7 +4551,7 @@ tests = testGroup "hevm"
     , testNoSimplify "sign-extend-2" $ do
       let p = (PEq (Lit 1) (SLT (SEx (Lit 2) (Var "arg1")) (Lit 0)))
       withDefaultSolver $ \s -> do
-        (res, _) <- checkSatWithProps s [p]
+        res <- checkSatWithProps s [p]
         _ <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4528,7 +4561,7 @@ tests = testGroup "hevm"
                 (PEq (Lit 1) (SLT (SEx (Lit 2) (Var "arg1")) (Lit 115792089237316195423570985008687907853269984665640564039457584007913128752664)))
                 (PEq (Var "arg1") (SEx (Lit 2) (Var "arg1")))
       withDefaultSolver $ \s -> do
-        (res, _) <- checkSatWithProps s [p]
+        res <- checkSatWithProps s [p]
         _ <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4536,7 +4569,7 @@ tests = testGroup "hevm"
     , testProperty "sign-extend-vs-smt" $ \(a :: W256, b :: W256) -> propNoSimpNoFuzz $ do
         let p = (PEq (Var "arg1") (SEx (Lit (a `mod` 50)) (Lit b)))
         withDefaultSolver $ \s -> do
-          (res, _) <- checkSatWithProps s [p]
+          res <- checkSatWithProps s [p]
           cex <- case res of
             Cex c -> pure c
             _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4683,7 +4716,7 @@ tests = testGroup "hevm"
     , testCase "correct-model-for-empty-buffer" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0}}) $ do
       withDefaultSolver $ \s -> do
         let props = [(PEq (BufLength (AbstractBuf "b")) (Lit 0x0))]
-        (res, _) <- checkSatWithProps s props
+        res <- checkSatWithProps s props
         (cex) <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4692,7 +4725,7 @@ tests = testGroup "hevm"
     , testCase "correct-model-for-non-empty-buffer-of-all-zeroes" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0}}) $ do
       withDefaultSolver $ \s -> do
         let props = [(PAnd (PEq (ReadByte (Lit 0x0) (AbstractBuf "b")) (LitByte 0x0)) (PEq (BufLength (AbstractBuf "b")) (Lit 0x1)))]
-        (res, _) <- checkSatWithProps s props
+        res <- checkSatWithProps s props
         (cex) <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4701,7 +4734,7 @@ tests = testGroup "hevm"
     , testCase "buffer-shrinking-does-not-loop" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0}}) $ do
       withDefaultSolver $ \s -> do
         let props = [(PGT (BufLength (AbstractBuf "b")) (Lit 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeb4))]
-        (res, _) <- checkSatWithProps s props
+        res <- checkSatWithProps s props
         let
           sat = case res of
             Cex _ -> True
@@ -4710,7 +4743,7 @@ tests = testGroup "hevm"
     , testCase "can-get-value-unrelated-to-large-buffer" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0}}) $ do
       withDefaultSolver $ \s -> do
         let props = [(PEq (Var "a") (Lit 0x1)), (PGT (BufLength (AbstractBuf "b")) (Lit 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeb4))]
-        (res, _) <- checkSatWithProps s props
+        res <- checkSatWithProps s props
         cex :: SMTCex <- case res of
           Cex c -> pure c
           _ -> liftIO $ assertFailure "Must be satisfiable!"
@@ -4719,26 +4752,20 @@ tests = testGroup "hevm"
     , test "no-duplicates-with-concrete-keccak" $ do
       let props = [(PGT (Var "a") (Keccak (ConcreteBuf "abcdef"))), (PGT (Var "b") (Keccak (ConcreteBuf "abcdef")))]
       conf <- readConfig
-      let SMT2 builders _ _ = fromRight (internalError "Must succeed") (assertProps conf props)
-      let texts = fmap toLazyText builders
-      let sexprs = splitSExpr texts
-      let noDuplicates = ((length sexprs) == (Set.size (Set.fromList sexprs)))
-      assertBoolM "There were duplicate lines in SMT encoding" noDuplicates
+      let SMT2 script _ _ = fromRight (internalError "Must succeed") (assertProps conf props)
+      assertBoolM "There were duplicate commands in SMT encoding" $ not (hasDuplicateCommands script)
     , test "no-duplicates-with-read-assumptions" $ do
       let props = [(PGT (ReadWord (Lit 2) (AbstractBuf "test")) (Lit 0)), (PGT (Expr.padByte $ ReadByte (Lit 10) (AbstractBuf "test")) (Expr.padByte $ LitByte 1))]
       conf <- readConfig
-      let SMT2 builders _ _ = fromRight (internalError "Must succeed") (assertProps conf props)
-      let texts = fmap toLazyText builders
-      let sexprs = splitSExpr texts
-      let noDuplicates = ((length sexprs) == (Set.size (Set.fromList sexprs)))
-      assertBoolM "There were duplicate lines in SMT encoding" noDuplicates
-     , test "all-keccak-asserted" $ do
+      let SMT2 script _ _ = fromRight (internalError "Must succeed") (assertProps conf props)
+      assertBoolM "There were duplicate lines in SMT encoding" $ not (hasDuplicateCommands script)
+     , test "all-concrete-keccaks-discovered" $ do
       let buf1 = (Keccak (ConcreteBuf "abc"))
           eq = (Eq buf1 (Lit 0x12))
           buf2 = WriteWord eq (Lit 0x0) mempty
           props = [PEq (Keccak buf2) (Lit 0x123)]
-          computes = keccakCompute props [] []
-      assertEqualM "Must compute two keccaks" 2 (length computes)
+          concrete = concreteKeccaks props
+      assertEqualM "Must find two keccaks" 2 (length concrete)
     , testCase "store-over-concrete-buffer" $ runEnv (testEnv {config = testEnv.config {numCexFuzz = 0, simp = False}}) $ do
       let
         as = AbstractStore (SymAddr "test") Nothing
@@ -4833,7 +4860,7 @@ tests = testGroup "hevm"
           assertBoolM "Must have a difference" (any (isCex . fst) eq.res)
           let cexs = mapMaybe (getCex . fst) eq.res
           assertEqualM "Must have exactly one cex" (length cexs) 1
-      -- check bug https://github.com/ethereum/hevm/issues/679
+      -- check bug https://github.com/argotorg/hevm/issues/679
       , test "eq-issue-with-length-cex-bug679" $ do
         let a = fromJust (hexByteString "5f610100526020610100f3")
             b = fromJust (hexByteString "5f356101f40115610100526020610100f3")
@@ -5561,7 +5588,7 @@ checkEquivAndLHS orig simp = do
 checkEquivBase :: (Eq a, App m) => (a -> a -> Prop) -> a -> a -> Bool -> m (Maybe Bool)
 checkEquivBase mkprop l r expect = do
   withSolvers Z3 1 1 (Just 1) $ \solvers -> do
-     (res, _) <- checkSatWithProps solvers [mkprop l r]
+     res <- checkSatWithProps solvers [mkprop l r]
      let ret = case res of
            Qed -> Just True
            Cex {} -> Just False

@@ -44,7 +44,7 @@ maxLitSigned :: W256
 maxLitSigned = 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 minLitSigned :: W256
-minLitSigned = 0x1000000000000000000000000000000000000000000000000000000000000000
+minLitSigned = 0x8000000000000000000000000000000000000000000000000000000000000000
 
 -- ** Stack Ops ** ---------------------------------------------------------------------------------
 
@@ -783,6 +783,15 @@ writeStorage key val store@(SStore key' val' prev)
               _ -> SStore key val store
 writeStorage key val store = SStore key val store
 
+-- Used to check if the underlying concrete store contains a key. Used to decide
+-- if we need to fetch a storage slot from RPC or not
+concStoreContains :: Expr EWord -> Expr Storage -> Bool
+concStoreContains k@(Lit key) store = case store of
+  ConcreteStore s -> Map.member key s
+  SStore _ _ s -> concStoreContains k s
+  AbstractStore _ _ -> internalError "cannot read deeply into an AbstractStore"
+  GVar _ -> internalError "cannot read to a GVar"
+concStoreContains _ _ = internalError "readDeepStorage only supports concrete keys"
 
 getAddr :: Expr Storage -> Maybe (Expr EAddr)
 getAddr (SStore _ _ p) = getAddr p
@@ -1344,6 +1353,7 @@ simplifyProp prop =
     go (PLEq a (Max b _)) | a == b = PBool True
     go (PLEq a (Max _ b)) | a == b = PBool True
     go (PLEq (Sub a b) c) | a == c = PLEq b a
+    go (PLEq a (Lit 0)) = peq (Lit 0) a
     go (PLT (Max (Lit a) b) (Lit c)) | a < c = PLT b (Lit c)
     go (PLT (Lit 0) (Eq a b)) = peq a b
     go (PLEq a b) = pleq a b
@@ -1370,13 +1380,13 @@ simplifyProp prop =
 
     -- Empty buf
     go (PEq (Lit 0) (BufLength k)) = peq k (ConcreteBuf "")
-    go (PEq (Lit 0) (Or a b)) = peq a (Lit 0) `PAnd` peq b (Lit 0)
+    go (PEq (Lit 0) (Or a b)) = peq (Lit 0) a `PAnd` peq (Lit 0) b
 
     -- PEq rewrites (notice -- GT/GEq is always rewritten to LT by simplify)
     go (PEq (Lit 1) (IsZero (LT a b))) = PLT a b
     go (PEq (Lit 1) (IsZero (LEq a b))) = PLEq a b
     go (PEq (Lit 0) (IsZero a)) = PLT (Lit 0) a
-    go (PEq a1 (Add a2 y)) | a1 == a2 = peq y (Lit 0)
+    go (PEq a1 (Add a2 y)) | a1 == a2 = peq (Lit 0) y
 
     -- solc specific stuff
     go (PLT (Lit 0) (IsZero (Eq a b))) = PNeg (peq a b)
@@ -1680,9 +1690,6 @@ containsNode p = getAny . foldExpr go (Any False)
 
 inRange :: Int -> Expr EWord -> Prop
 inRange sz e = if sz == 256 then PBool True else PLEq e (Lit $ 2 ^ sz - 1)
-
-inRangeSigned :: Int -> Expr EWord -> Prop
-inRangeSigned sz e = ((PLEq e (Lit $ 2 ^ (sz - 1) - 1)) `POr` (PGEq e $ Lit $ ((2 ^ sz) - 2 ^ (sz -  1))))
 
 -- | images of keccak(bytes32(x)) where 0 <= x < 256
 preImages :: [(W256, Word8)]

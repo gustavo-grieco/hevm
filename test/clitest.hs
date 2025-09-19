@@ -123,27 +123,6 @@ main = do
         stdout `shouldContain` "Return: 0x64"
         exitCode `shouldBe` ExitSuccess
 
-      it "warning on zero address" $ do
-        Just c <- runApp $ solcRuntime (T.pack "C") (T.pack [i|
-           contract Target {
-             function get() external view returns (uint256) {
-                 return 55;
-             }
-           }
-           contract C {
-             Target mm;
-             function retFor() public returns (uint256) {
-                 Target target = Target(address(0));
-                 uint256 ret = target.get();
-                 assert(ret == 4);
-                 return ret;
-             }
-           }
-          |])
-        let hexStr = Types.bsToHex c
-        (_, stdout, _) <- readProcessWithExitCode "cabal" ["run", "exe:hevm", "--", "symbolic", "--code", hexStr] ""
-        stdout `shouldContain` "Warning: fetching contract at address 0"
-
       it "empty solver is always unknown" $ do
         Just c <- runApp $ solcRuntime (T.pack "C") (T.pack [i|
            contract C {
@@ -210,19 +189,37 @@ main = do
 
       -- both should fail with address 0x1234 -- a SPECIFIC address, not a ranomly generated one
       it "keccak-assumptions-setup" $ do
-        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-preimage-setup.sol" ["--debug", "--num-cex-fuzz", "0", "--smtdebug"]
+        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-preimage-setup.sol" ["--num-cex-fuzz", "0"]
         stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[validated]"
         stdout `shouldContain` "0x0000000000000000000000000000000000001234"
         exitCode `shouldBe` (ExitFailure 1)
       it "keccak-assumptions-constructor" $ do
-        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-preimage-constructor.sol" ["--debug", "--num-cex-fuzz", "0", "--smtdebug"]
+        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-preimage-constructor.sol" ["--num-cex-fuzz", "0"]
         stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[validated]"
         stdout `shouldContain` "0x0000000000000000000000000000000000001234"
+        exitCode `shouldBe` (ExitFailure 1)
+      it "keccak-wrong-preimage" $ do
+        (exitCode, stdout, stderr) <- runForgeTest "test/contracts/fail/keccak-wrong-preimage.sol" ["--num-cex-fuzz", "0"]
+        stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[not reproducible]"
         exitCode `shouldBe` (ExitFailure 1)
       it "only-deployed-contracts" $ do
         (_, stdout, stderr) <- runForgeTest "test/contracts/pass/only-deployed-contracts.sol" ["--only-deployed"]
         stderr `shouldNotContain` "CallStack"
         stdout `shouldContain` "[PASS]"
+      it "only-deployed-contracts-force-addr" $ do
+        (_, stdout, stderr) <- runForgeTest "test/contracts/pass/only-deployed-force-addr.sol" ["--only-deployed"]
+        stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[FAIL]"
+        stdout `shouldContain` "[validated]"
+        stderr `shouldNotContain` "not reproducible"
+      it "should-fail" $ do
+        (_, stdout, stderr) <- runForgeTest "test/contracts/fail/should-fail.sol" []
+        stderr `shouldNotContain` "CallStack"
+        stdout `shouldContain` "[FAIL]"
+        stdout `shouldContain` "[validated]"
       it "dump unsolved" $ do
         -- >>> (139487132679483*2347234698674) % 982374892374389278894734
         -- 278198683154907855159120
@@ -244,3 +241,9 @@ main = do
         fileExists <- doesFileExist filename
         shouldBe fileExists True
         removeFile filename
+      it "rpc-mock" $ do
+        (_, stdout, stderr) <- runForgeTest "test/contracts/fail/rpc-test.sol"
+          ["--rpc", "http://mock.mock", "--prefix", "test_attack_symbolic"
+          , "--number", "10307563", "--mock-file", "test/contracts/fail/rpc-test-mock.json"]
+        stdout `shouldContain` "[FAIL]"
+        stderr `shouldNotContain` "CallStack"

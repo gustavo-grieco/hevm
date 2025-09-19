@@ -39,7 +39,6 @@ import Data.Word (Word8, Word32, Word64, byteSwap32, byteSwap64)
 import Data.DoubleWord
 import Data.DoubleWord.TH
 import Data.Map (Map)
-import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Sequence (Seq)
@@ -588,12 +587,12 @@ evmErrToString = \case
 
 -- | Sometimes we can only partially execute a given program
 data PartialExec
-  = UnexpectedSymbolicArg { pc :: Int, opcode :: String, msg  :: String, args  :: [SomeExpr] }
+  = UnexpectedSymbolicArg { pc :: Int, addr :: Expr EAddr, opcode :: String, msg  :: String, args  :: [SomeExpr] }
   | MaxIterationsReached  { pc :: Int, addr :: Expr EAddr }
-  | JumpIntoSymbolicCode  { pc :: Int, jumpDst :: Int }
+  | JumpIntoSymbolicCode  { pc :: Int, addr :: Expr EAddr, jumpDst :: Int }
   | PrecompileMissing     { preAddr :: Addr }
-  | CheatCodeMissing      { pc :: Int, selector :: FunctionSelector }
-  | BranchTooDeep         { pc :: Int}
+  | CheatCodeMissing      { pc :: Int, addr :: Expr EAddr, selector :: FunctionSelector }
+  | BranchTooDeep         { pc :: Int, addr :: Expr EAddr}
   deriving (Show, Eq, Ord)
 
 -- | Effect types used by the vm implementation for side effects & control flow
@@ -685,7 +684,7 @@ data VM (t :: VMType) s = VM
   , tx             :: TxState
   , logs           :: [Expr Log]
   , traces         :: Zipper.TreePos Zipper.Empty Trace
-  , cache          :: Cache
+  , pathsVisited   :: PathsVisited
   , burned         :: !(Gas t)
   , iterations     :: Map CodeLocation (Int, [Expr EWord])
   -- ^ how many times we've visited a loc, and what the contents of the stack were when we were there last
@@ -706,7 +705,7 @@ data VM (t :: VMType) s = VM
 data ForkState = ForkState
   { env :: Env
   , block :: Block
-  , cache :: Cache
+  , pathsVisited :: PathsVisited
   , urlOrAlias :: String
   }
   deriving (Show, Generic)
@@ -777,7 +776,7 @@ data FrameState (t :: VMType) s = FrameState
   { contract     :: Expr EAddr
   , codeContract :: Expr EAddr
   , code         :: ContractCode
-  , pc           :: {-# UNPACK #-} !Int
+  , pc           :: {-# UNPACK #-} !Int -- program counter in BYTES (not ops). PUSH ops will increment pc by more than 1
   , stack        :: [Expr EWord]
   , memory       :: Memory s
   , memorySize   :: Word64
@@ -849,7 +848,7 @@ data Contract = Contract
   , balance     :: Expr EWord
   , nonce       :: Maybe W64
   , codehash    :: Expr EWord
-  , opIxMap     :: VS.Vector Int
+  , opIxMap     :: VS.Vector Int -- ^ map from byte index to op index
   , codeOps     :: V.Vector (Int, Op)
   , external    :: Bool
   }
@@ -896,33 +895,7 @@ class VMOps (t :: VMType) where
 
 -- | A unique id for a given pc
 type CodeLocation = (Expr EAddr, Int)
-
--- | The cache is data that can be persisted for efficiency:
--- any expensive query that is constant at least within a block.
-data Cache = Cache
-  { fetched :: Map Addr Contract
-  , path    :: Map (CodeLocation, Int) Bool
-  } deriving (Show, Generic)
-
-instance Semigroup Cache where
-  a <> b = Cache
-    { fetched = Map.unionWith unifyCachedContract a.fetched b.fetched
-    , path = mappend a.path b.path
-    }
-
-instance Monoid Cache where
-  mempty = Cache { fetched = mempty
-                 , path = mempty
-                 }
-
--- only intended for use in Cache merges, where we expect
--- everything to be Concrete
-unifyCachedContract :: Contract -> Contract -> Contract
-unifyCachedContract a b = a { storage = merged }
-  where merged = case (a.storage, b.storage) of
-                   (ConcreteStore sa, ConcreteStore sb) ->
-                     ConcreteStore (mappend sa sb)
-                   _ -> a.storage
+type PathsVisited = Map (CodeLocation, Int) Bool
 
 
 -- Bytecode Representations ------------------------------------------------------------------------
@@ -1173,6 +1146,16 @@ instance Monoid SMTCex where
     , txContext = mempty
     }
 
+data ReproducibleCex = ReproducibleCex
+  { testName :: Text
+  , callData :: ByteString
+  }
+  deriving (Eq)
+instance Show ReproducibleCex where
+  show (ReproducibleCex name data') =
+    "ReproducibleCex { testName = " <> show name <>
+    ", callData = 0x" <> bsToHex data' <> " }"
+
 class GetUnknownStr a where
     getUnknownStr :: a -> String
 
@@ -1283,6 +1266,12 @@ instance JSON.ToJSON W256 where
     where
       cutshow = drop 2 $ show x
       pad = replicate (64 - length (cutshow)) '0'
+
+instance JSON.ToJSONKey W256 where
+  toJSONKey = JSON.toJSONKeyText $ \x ->
+    let cutshow = drop 2 $ show x
+        pad = replicate (64 - length cutshow) '0'
+    in T.pack ("0x" ++ pad ++ cutshow)
 
 instance JSON.FromJSON W256 where
   parseJSON v = do
@@ -1620,6 +1609,10 @@ forceEWordToEAddr = \case
   WAddr (SymAddr a) -> SymAddr a
   _ -> internalError "Unexpected EWord type forced to address"
 
+forceLit :: Expr EWord -> W256
+forceLit (Lit x) = x
+forceLit x = internalError $ "concrete vm, shouldn't ever happen: " <> show x
+
 -- Optics ------------------------------------------------------------------------------------------
 
 
@@ -1627,7 +1620,6 @@ makeFieldLabelsNoPrefix ''VM
 makeFieldLabelsNoPrefix ''FrameState
 makeFieldLabelsNoPrefix ''TxState
 makeFieldLabelsNoPrefix ''SubState
-makeFieldLabelsNoPrefix ''Cache
 makeFieldLabelsNoPrefix ''Trace
 makeFieldLabelsNoPrefix ''VMOpts
 makeFieldLabelsNoPrefix ''Frame

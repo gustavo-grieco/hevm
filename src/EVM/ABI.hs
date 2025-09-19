@@ -38,6 +38,7 @@ module EVM.ABI
   , Anonymity (..)
   , Indexed (..)
   , Sig(..)
+  , callSig
   , putAbi
   , getAbi
   , getAbiSeq
@@ -614,3 +615,6 @@ arbitraryIntegralWithMax maxbound =
        smol <- choose (into mn `max` (-k), mx `min` k)
        mid <- choose (0, maxbound)
        elements [fromIntegral smol, fromIntegral mid, fromIntegral (maxbound - (fromIntegral smol))]
+
+callSig :: Sig -> Text
+callSig (Sig name args) = name <> "(" <> (Text.intercalate "," (map abiTypeSolidity args)) <> ")"
