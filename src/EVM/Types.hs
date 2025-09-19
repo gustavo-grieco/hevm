@@ -591,6 +591,7 @@ data PartialExec
   = UnexpectedSymbolicArg { pc :: Int, opcode :: String, msg  :: String, args  :: [SomeExpr] }
   | MaxIterationsReached  { pc :: Int, addr :: Expr EAddr }
   | JumpIntoSymbolicCode  { pc :: Int, jumpDst :: Int }
+  | PrecompileMissing     { preAddr :: Addr }
   | CheatCodeMissing      { pc :: Int, selector :: FunctionSelector }
   | BranchTooDeep         { pc :: Int}
   deriving (Show, Eq, Ord)
