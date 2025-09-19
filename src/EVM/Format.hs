@@ -485,6 +485,7 @@ formatPartial = \case
     , "program counter: " <> T.pack (show pc)
     , "function selector: " <> T.pack (show selector)
     ]
+  PrecompileMissing preAddr -> "Precompile at address " <> pack (show preAddr) <> " does not exist"
   BranchTooDeep pc -> T.unlines ["Branches too deep at program counter: " <> pack (show pc)]
 
 formatPartialShort :: PartialExec -> Text
@@ -493,6 +494,7 @@ formatPartialShort = \case
   MaxIterationsReached {}            -> "Max iterations reached"
   JumpIntoSymbolicCode {}            -> "Encountered a jump into a potentially symbolic code region while executing initcode"
   CheatCodeMissing _ selector        -> "Cheat code not recognized: " <> T.pack (show selector)
+  PrecompileMissing preAddr          -> "Precompile at address " <> pack (show preAddr) <> " does not exist"
   BranchTooDeep pc                   -> "Branches too deep at program counter: " <> pack (show pc)
 
 formatSomeExpr :: SomeExpr -> Text
