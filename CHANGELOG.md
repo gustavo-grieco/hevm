@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - hevm and solidity has been moved to under github.com/argotorg
 - Extra range constraints for ABI symbolic types are no longer added. They are
   not needed as they are enforced in the bytecode.
+- We no longer try to fuzz the Expr to find a concrete value that satisfies
+  the expression. This was not very effective and made the system more complex
+  to maintain. Echidna is an excellent fuzzer that can be used instead.
 
 ## [0.55.1] - 2025-07-22
 

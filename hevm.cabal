@@ -99,7 +99,6 @@ library
     EVM.Expr,
     EVM.SMT,
     EVM.Solvers,
-    EVM.Fuzz,
     EVM.Exec,
     EVM.Format,
     EVM.Fetch,

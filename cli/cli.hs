@@ -88,7 +88,6 @@ data CommonOptions = CommonOptions
   , smtdebug      ::Bool
   , dumpUnsolved  ::Maybe String
   , numSolvers    ::Maybe Natural
-  , numCexFuzz    ::Integer
   , maxIterations ::Integer
   , promiseNoReent::Bool
   , maxBufSize    ::Int
@@ -117,7 +116,6 @@ commonOptions = CommonOptions
   <*> (switch $ long "smtdebug"             <> help "Print smt queries sent to the solver")
   <*> (optional $ strOption $ long "dump-unsolved" <> help "Dump unsolved SMT queries to this (relative) path")
   <*> (optional $ option auto $ long "num-solvers" <> help "Number of solver instances to use (default: number of cpu cores)")
-  <*> (option auto $ long "num-cex-fuzz"    <> showDefault <> value 3 <> help "Number of fuzzing tries to do to generate a counterexample")
   <*> (option auto $ long "max-iterations"  <> showDefault <> value 5 <> help "Number of times we may revisit a particular branching point. For no bound, set -1")
   <*> (switch $ long "promise-no-reent"     <> help "Promise no reentrancy is possible into the contract(s) being examined")
   <*> (option auto $ long "max-buf-size"    <> value 64 <> help "Maximum size of buffers such as calldata and returndata in exponents of 2 (default: 64, i.e. 2^64 bytes)")
@@ -356,7 +354,6 @@ main = do
         , debug = cOpts.debug
         , dumpEndStates = cOpts.debug
         , dumpExprs = cOpts.debug
-        , numCexFuzz = cOpts.numCexFuzz
         , dumpTrace = cOpts.trace
         , decomposeStorage = Prelude.not cOpts.noDecompose
         , promiseNoReent = cOpts.promiseNoReent
