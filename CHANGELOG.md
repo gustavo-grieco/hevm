@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## Added
+- Output geth compatible jsonl traces in `hevm exec` via `--json-trace`
 - Allow dumping unsolved SMT files via `--dump-unsolved`
 - Allow resolving unknown addresses to only those that are already deployed
   via option `--only-deployed`
