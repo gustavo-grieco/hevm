@@ -107,9 +107,6 @@ testNoSimplify :: TestName -> ReaderT Env IO () -> TestTree
 testNoSimplify a b = let testEnvNoSimp = Env { config = testEnv.config { simp = False } }
   in testCase a $ runEnv testEnvNoSimp b
 
-testFuzz :: TestName -> ReaderT Env IO () -> TestTree
-testFuzz a b = testCase a $ runEnv (testEnv {config = testEnv.config}) b
-
 prop :: Testable prop => ReaderT Env IO prop -> Property
 prop a = ioProperty $ runEnv testEnv a
 
@@ -4340,11 +4337,10 @@ tests = testGroup "hevm"
                         case Map.lookup addr cex.store of
                           Just s -> case (Map.lookup 0 s, Map.lookup (10 + a) s) of
                                       (Just x, Just y) -> x >= y
-                                      (Just x, Nothing) -> x > 0 -- arr1 can be Nothing, it'll then be zero
+                                      (Nothing, Just y) -> y > 0 -- arr1 can be Nothing, it'll then be zero
                                       _ -> False
                           Nothing -> False -- arr2 must contain an element, or it'll be 0
-          assertBoolM "Did not find expected storage cex" testCex
-          putStrLnM "Expected counterexample found"
+          assertBoolM "Found expected storage cex" testCex
         ,
         test "storage-cex-concrete" $ do
           Just c <- solcRuntime "C"
@@ -4397,7 +4393,7 @@ tests = testGroup "hevm"
           putStrLnM $ "Basic tstore check passed"
   ]
   , testGroup "simple-checks"
-    [ testFuzz "simple-stores" $ do
+    [ test "simple-stores" $ do
       Just c <- solcRuntime "MyContract"
         [i|
         contract MyContract {
@@ -4410,7 +4406,7 @@ tests = testGroup "hevm"
       let sig = (Sig "func()" [])
       (_, [Cex (_, ctr)]) <- withCVC5Solver $ \s -> checkAssert s defaultPanicCodes c (Just sig) [] defaultVeriOpts
       putStrLnM  $ "expected counterexample found.  ctr: " <> (show ctr)
-    , testFuzz "simple-fixed-value" $ do
+    , test "simple-fixed-value" $ do
       Just c <- solcRuntime "MyContract"
         [i|
         contract MyContract {
@@ -4423,7 +4419,7 @@ tests = testGroup "hevm"
       let sig = (Sig "func(uint256)" [AbiUIntType 256])
       (_, [Cex (_, ctr)]) <- withCVC5Solver $ \s -> checkAssert s defaultPanicCodes c (Just sig) [] defaultVeriOpts
       putStrLnM  $ "expected counterexample found.  ctr: " <> (show ctr)
-    , testFuzz "simple-fixed-value2" $ do
+    , test "simple-fixed-value2" $ do
       Just c <- solcRuntime "MyContract"
         [i|
         contract MyContract {
@@ -4435,7 +4431,7 @@ tests = testGroup "hevm"
       let sig = (Sig "func(uint256,uint256)" [AbiUIntType 256, AbiUIntType 256])
       (_, [Cex (_, ctr)]) <- withCVC5Solver $ \s -> checkAssert s defaultPanicCodes c (Just sig) [] defaultVeriOpts
       putStrLnM  $ "expected counterexample found.  ctr: " <> (show ctr)
-    , testFuzz "simple-fixed-value3" $ do
+    , test "simple-fixed-value3" $ do
       Just c <- solcRuntime "MyContract"
         [i|
         contract MyContract {
@@ -4447,7 +4443,7 @@ tests = testGroup "hevm"
       let sig = (Sig "func(uint256,uint256)" [AbiUIntType 256, AbiUIntType 256])
       (_, [Cex (_, ctr1), Cex (_, ctr2)]) <- withSolvers Bitwuzla 1 1 Nothing $ \s -> checkAssert s defaultPanicCodes c (Just sig) [] defaultVeriOpts
       putStrLnM  $ "expected counterexamples found.  ctr1: " <> (show ctr1) <> " ctr2: " <> (show ctr2)
-    , testFuzz "simple-fixed-value-store1" $ do
+    , test "simple-fixed-value-store1" $ do
       Just c <- solcRuntime "MyContract"
         [i|
         contract MyContract {
@@ -4461,7 +4457,7 @@ tests = testGroup "hevm"
       let sig = (Sig "func(uint256)" [AbiUIntType 256, AbiUIntType 256])
       (_, [Cex _]) <- withCVC5Solver $ \s -> checkAssert s defaultPanicCodes c (Just sig) [] defaultVeriOpts
       putStrLnM  "expected counterexamples found"
-    , testFuzz "simple-fixed-value-store2" $ do
+    , test "simple-fixed-value-store2" $ do
       Just c <- solcRuntime "MyContract"
         [i|
         contract MyContract {
