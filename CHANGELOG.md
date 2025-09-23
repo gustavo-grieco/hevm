@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   threads of the symbolic execution
 - During running in --only-deployed mode, we forgot to force the address
   in the constraints to be the one we computed it to be. Fixed.
+- We now properly collect all storage reads from the program and build
+  a proper counterexample. Previously, some information might have been missing.
 
 ## Changed
 - Updated forge to 1.2.3 and forge-std to 60acb7aa (1.9.7+)

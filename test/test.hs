@@ -4774,8 +4774,17 @@ tests = testGroup "hevm"
         eq = PEq e1 (Lit 0x0)
       conf <- readConfig
       let SMT2 _ (CexVars _ _ _ storeReads _ _) _ = fromRight (internalError "Must succeed") (assertProps conf [eq])
-      let expected = Map.singleton (SymAddr "test", Nothing) (Set.singleton (Lit 0x40))
+      let expected = StorageReads $ Map.singleton (SymAddr "test", Nothing) (Set.singleton (Lit 0x40))
       assertEqualM "Reads must be properly collected" storeReads expected
+    , test "all-abstract-reads-detected" $ do
+      let mystore = (AbstractStore (SymAddr "test") Nothing)
+      let props = [PGT (SLoad (Lit 2) mystore) (SLoad (Lit 0) mystore)]
+      conf <- readConfig
+      let SMT2 _ cexVars _ = fromRight (internalError "Must succeed") (assertProps conf props)
+      let (StorageReads m) = cexVars.storeReads
+      case Map.lookup ((SymAddr "test"), Nothing) m of
+        Nothing -> assertBoolM "Address missing from storage reads" False
+        Just storeReads -> assertBoolM "Did not collect all abstract reads!" $ (Set.size storeReads) == 2
   ]
   , testGroup "equivalence-checking"
     [
