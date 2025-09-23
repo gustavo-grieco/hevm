@@ -4339,7 +4339,7 @@ tests = testGroup "hevm"
                                       (Just x, Just y) -> x >= y
                                       _ -> False
                           Nothing -> False -- arr2 must contain an element, or it'll be 0
-          assertBoolM "Found expected storage cex" testCex
+          assertBoolM "Did not find expected storage cex" testCex
         ,
         test "storage-cex-concrete" $ do
           Just c <- solcRuntime "C"
