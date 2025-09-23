@@ -4337,7 +4337,6 @@ tests = testGroup "hevm"
                         case Map.lookup addr cex.store of
                           Just s -> case (Map.lookup 0 s, Map.lookup (10 + a) s) of
                                       (Just x, Just y) -> x >= y
-                                      (Nothing, Just y) -> y > 0 -- arr1 can be Nothing, it'll then be zero
                                       _ -> False
                           Nothing -> False -- arr2 must contain an element, or it'll be 0
           assertBoolM "Found expected storage cex" testCex
