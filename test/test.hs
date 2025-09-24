@@ -4342,6 +4342,7 @@ tests = testGroup "hevm"
                                       _ -> False
                           Nothing -> False -- arr2 must contain an element, or it'll be 0
           assertBoolM "Did not find expected storage cex" testCex
+          putStrLnM "Expected counterexample found"
         ,
         test "storage-cex-concrete" $ do
           Just c <- solcRuntime "C"
@@ -4681,7 +4682,7 @@ tests = testGroup "hevm"
                          , blockContext = mempty
                          , txContext = Map.fromList [(TxValue,0x0)]}
       putStrLnM $ "Cex found:" <> T.unpack (formatCex (AbstractBuf "txdata") Nothing mycex)
-    , testCase "correct-model-for-empty-buffer" $ runEnv (testEnv {config = testEnv.config}) $ do
+    , test "correct-model-for-empty-buffer" $ do
       withDefaultSolver $ \s -> do
         let props = [(PEq (BufLength (AbstractBuf "b")) (Lit 0x0))]
         res <- checkSatWithProps s props
@@ -4690,7 +4691,7 @@ tests = testGroup "hevm"
           _ -> liftIO $ assertFailure "Must be satisfiable!"
         let value = fromRight (error "cannot be") $ subModel cex (AbstractBuf "b")
         assertEqualM "Buffer must be empty" (ConcreteBuf "") value
-    , testCase "correct-model-for-non-empty-buffer-of-all-zeroes" $ runEnv (testEnv {config = testEnv.config}) $ do
+    , test "correct-model-for-non-empty-buffer-of-all-zeroes" $ do
       withDefaultSolver $ \s -> do
         let props = [(PAnd (PEq (ReadByte (Lit 0x0) (AbstractBuf "b")) (LitByte 0x0)) (PEq (BufLength (AbstractBuf "b")) (Lit 0x1)))]
         res <- checkSatWithProps s props
@@ -4699,7 +4700,7 @@ tests = testGroup "hevm"
           _ -> liftIO $ assertFailure "Must be satisfiable!"
         let value = fromRight (error "cannot be") $ subModel cex (AbstractBuf "b")
         assertEqualM "Buffer must have size 1 and contain zero byte" (ConcreteBuf "\0") value
-    , testCase "buffer-shrinking-does-not-loop" $ runEnv (testEnv {config = testEnv.config}) $ do
+    , test "buffer-shrinking-does-not-loop" $ do
       withDefaultSolver $ \s -> do
         let props = [(PGT (BufLength (AbstractBuf "b")) (Lit 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeb4))]
         res <- checkSatWithProps s props
@@ -4708,7 +4709,7 @@ tests = testGroup "hevm"
             Cex _ -> True
             _ -> False
         assertBoolM "Must be satisfiable!" sat
-    , testCase "can-get-value-unrelated-to-large-buffer" $ runEnv (testEnv {config = testEnv.config}) $ do
+    , test "can-get-value-unrelated-to-large-buffer" $ do
       withDefaultSolver $ \s -> do
         let props = [(PEq (Var "a") (Lit 0x1)), (PGT (BufLength (AbstractBuf "b")) (Lit 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeb4))]
         res <- checkSatWithProps s props
