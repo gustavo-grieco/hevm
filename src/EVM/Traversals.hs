@@ -4,12 +4,12 @@
 -}
 module EVM.Traversals where
 
-import Prelude hiding (LT, GT)
+import Prelude hiding (LT, GT, Foldable(..))
 
 import Control.Monad (forM, void)
 import Control.Monad.Identity (Identity(Identity), runIdentity)
+import Data.Foldable (Foldable(..))
 import Data.Map.Strict qualified as Map
-import Data.List (foldl')
 
 import EVM.Types
 
