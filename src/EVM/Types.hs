@@ -1505,7 +1505,7 @@ constructWord256 bytes
     w256m0 = word8sToWord64 (take 8 (drop 16 bytes))
     w256lo = word8sToWord64 (take 8 (drop 24 bytes))
     word8sToWord64 :: [Word8] -> Word64
-    word8sToWord64 = foldl (\acc byte -> (acc `shiftL` 8) .|. fromIntegral byte) 0
+    word8sToWord64 = foldl' (\acc byte -> (acc `shiftL` 8) .|. fromIntegral byte) 0
 
 
 -- Keccak hashing ----------------------------------------------------------------------------------
