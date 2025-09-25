@@ -3,6 +3,7 @@ module EVM.SMT.Types where
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Builder
 import Data.Map (Map)
+import Data.Map qualified as Map (unionWith)
 import Data.Set (Set)
 
 import EVM.Types
@@ -24,6 +25,17 @@ instance Monoid SMT2 where
   mempty = SMT2 mempty mempty mempty
 
 
+newtype StorageReads = StorageReads (Map (Expr EAddr, Maybe W256) (Set (Expr EWord)))
+  deriving (Eq, Show)
+
+instance Semigroup StorageReads where
+  StorageReads m1 <> StorageReads m2 =
+    StorageReads (Map.unionWith (<>) m1 m2)
+
+instance Monoid StorageReads where
+  mempty = StorageReads mempty
+
+
 -- | Data that we need to construct a nice counterexample
 data CexVars = CexVars
   { -- | variable names that we need models for to reconstruct calldata
@@ -33,7 +45,7 @@ data CexVars = CexVars
     -- | buffer names and guesses at their maximum size
   , buffers      :: Map Text (Expr EWord)
     -- | reads from abstract storage
-  , storeReads   :: Map (Expr EAddr, Maybe W256) (Set (Expr EWord))
+  , storeReads   :: StorageReads
     -- | the names of any block context variables
   , blockContext :: [Text]
     -- | the names of any tx context variables

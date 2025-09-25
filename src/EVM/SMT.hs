@@ -168,7 +168,7 @@ assertPropsHelper simp psPreConc = do
     -- Buf, Storage, etc. declarations needed
     bufVals = Map.elems bufs
     storeVals = Map.elems stores
-    storageReads = Map.unionsWith (<>) $ fmap findStorageReads toDeclarePs
+    storageReads = mconcat $ fmap findStorageReads toDeclarePs
     abstractStores = Set.toList $ Set.unions (fmap referencedAbstractStores toDeclarePs)
     addresses = Set.toList $ Set.unions (fmap referencedAddrs toDeclarePs)
 
@@ -188,7 +188,7 @@ assertPropsHelper simp psPreConc = do
       assumps <- mapM assertSMT $ assertReads psElim bufs stores
       pure (SMTComment "read assumptions" : assumps)
 
-    cexInfo :: Map (Expr 'EAddr, Maybe W256) (Set (Expr 'EWord)) -> CexVars
+    cexInfo :: StorageReads -> CexVars
     cexInfo a = mempty { storeReads = a }
 
 
@@ -254,14 +254,14 @@ referencedBlockContext expr = nubOrd $ foldTerm go [] expr
 -- the store (e.g, SLoad addr idx (SStore addr idx val AbstractStore)).
 -- However, we expect that most of such reads will have been
 -- simplified away.
-findStorageReads :: Prop -> Map (Expr EAddr, Maybe W256) (Set (Expr EWord))
+findStorageReads :: Prop -> StorageReads
 findStorageReads p = foldProp go mempty p
   where
-    go :: Expr a -> Map (Expr EAddr, Maybe W256) (Set (Expr EWord))
+    go :: Expr a -> StorageReads
     go = \case
       SLoad slot store | baseIsAbstractStore store -> case Expr.getAddr store of
           Nothing -> internalError $ "could not extract address from: " <> show store
-          Just address -> Map.singleton (address, Expr.getLogicalIdx store) (Set.singleton slot)
+          Just address -> StorageReads $ Map.singleton (address, Expr.getLogicalIdx store) (Set.singleton slot)
       _ -> mempty
 
     baseIsAbstractStore :: Expr 'Storage -> Bool
@@ -868,10 +868,10 @@ getBufs getVal bufs = foldM getBuf mempty bufs
 -- concretized storage
 getStore
   :: (Text -> IO Text)
-  -> Map (Expr EAddr, Maybe W256) (Set (Expr EWord))
+  -> StorageReads
   -> IO (Map (Expr EAddr) (Map W256 W256))
-getStore getVal abstractReads =
-  fmap Map.fromList $ forM (Map.toList abstractReads) $ \((addr, idx), slots) -> do
+getStore getVal (StorageReads innerMap) =
+  fmap Map.fromList $ forM (Map.toList innerMap) $ \((addr, idx), slots) -> do
     let name = toLazyText (storeName addr idx)
     raw <- getVal name
     let parsed = case parseCommentFreeFileMsg getValueRes (T.toStrict raw) of
