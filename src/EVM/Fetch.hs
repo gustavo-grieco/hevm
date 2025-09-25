@@ -8,6 +8,7 @@ module EVM.Fetch
   , oracle
   , Fetcher
   , RpcInfo (..)
+  , RpcQuery (..)
   , EVM.Fetch.zero
   , readMockData
   , BlockNumber (..)
