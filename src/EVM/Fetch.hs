@@ -2,6 +2,8 @@
 module EVM.Fetch
   ( fetchContractWithSession
   , fetchBlockWithSession
+  , fetchSlothWithSession
+  , fetchQuery
   , oracle
   , Fetcher
   , RpcInfo (..)
