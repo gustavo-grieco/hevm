@@ -3,6 +3,7 @@ module EVM.Fetch
   ( fetchContractWithSession
   , fetchBlockWithSession
   , fetchSlotWithSession
+  , fetchWithSession
   , fetchQuery
   , oracle
   , Fetcher
