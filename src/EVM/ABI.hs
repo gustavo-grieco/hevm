@@ -50,7 +50,7 @@ module EVM.ABI
   , encodeAbiValue
   , decodeAbiValue
   , decodeBuf
-  , decodeBufFuzzy
+  , decudeBufRobust
   , decodeStaticArgs
   , formatString
   , parseTypeName
@@ -526,13 +526,13 @@ decodeBuf tps buf =
   where
     isDynamic t = abiKind t == Dynamic
 
-decodeBufFuzzy :: [AbiType] -> Expr Buf -> (AbiVals, String)
-decodeBufFuzzy tps (ConcreteBuf b) =
+decudeBufRobust :: [AbiType] -> Expr Buf -> (AbiVals, String)
+decudeBufRobust tps (ConcreteBuf b) =
   case runGetOrFail (getAbiSeq (length tps) tps) (BSLazy.fromStrict b) of
     Right ("", _, args) -> (CAbi (toList args), "")
     Right (str, _, args) -> (CAbi (toList args), "with trailing bytes: " ++ show (BSLazy.unpack str))
     Left (_, _, err) -> (NoVals, "error decoding abi: " ++ err)
-decodeBufFuzzy tps buf =
+decudeBufRobust tps buf =
   if any isDynamic tps then (NoVals, "dynamic types not supported in symbolic decoding")
   else
     let
