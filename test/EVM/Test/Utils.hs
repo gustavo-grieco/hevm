@@ -28,12 +28,12 @@ import EVM.Fetch (RpcInfo)
 import EVM.Fetch qualified as Fetch
 
 -- Returns tuple of (No cex, No warnings)
-runSolidityTestCustom
+runForgeTestCustom
   :: (MonadMask m, App m)
   => FilePath -> Text -> Maybe Natural -> Maybe Integer -> Bool -> RpcInfo -> ProjectType -> m (Bool, Bool)
-runSolidityTestCustom testFile match timeout maxIter ffiAllowed rpcinfo projectType = do
+runForgeTestCustom testFile match timeout maxIter ffiAllowed rpcinfo projectType = do
   withSystemTempDirectory "dapp-test" $ \root -> do
-    compile projectType root testFile >>= \case
+    compileWithForge projectType root testFile >>= \case
       Left e -> liftIO $ do
         putStrLn e
         internalError $ "Error compiling test file " <> show testFile <> " in directory "
@@ -44,10 +44,10 @@ runSolidityTestCustom testFile match timeout maxIter ffiAllowed rpcinfo projectT
           unitTest opts buildOut
 
 -- Returns tuple of (No cex, No warnings)
-runSolidityTest
+runForgeTest
   :: (MonadMask m, App m)
   => FilePath -> Text -> m (Bool, Bool)
-runSolidityTest testFile match = runSolidityTestCustom testFile match Nothing Nothing True mempty Foundry
+runForgeTest testFile match = runForgeTestCustom testFile match Nothing Nothing True mempty Foundry
 
 testOpts :: forall m . App m => SolverGroup -> FilePath -> Maybe BuildOutput -> Text -> Maybe Integer -> Bool -> RpcInfo -> m (UnitTestOptions RealWorld)
 testOpts solvers root buildOutput match maxIter allowFFI rpcinfo = do
@@ -86,9 +86,9 @@ callProcessCwd cmd args cwd = do
       ExitSuccess   -> pure ()
       ExitFailure r -> processFailedException "callProcess" cmd args r
 
-compile :: App m => ProjectType -> FilePath -> FilePath -> m (Either String BuildOutput)
-compile CombinedJSON _root _src = internalError  "unsupported compile type: CombinedJSON"
-compile _ root src = do
+compileWithForge :: App m => ProjectType -> FilePath -> FilePath -> m (Either String BuildOutput)
+compileWithForge CombinedJSON _root _src = internalError  "unsupported compile type: CombinedJSON"
+compileWithForge _ root src = do
   liftIO $ createDirectory (root </> "src")
   liftIO $ writeFile (root </> "src" </> "unit-tests.t.sol") =<< readFile =<< Paths.getDataFileName src
   liftIO $ initLib (root </> "lib" </> "tokens") ("test" </> "contracts" </> "lib" </> "erc20.sol") "erc20.sol"

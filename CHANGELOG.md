@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - We no longer try to fuzz the Expr to find a concrete value that satisfies
   the expression. This was not very effective and made the system more complex
   to maintain. Echidna is an excellent fuzzer that can be used instead.
+- Rename confusing function name runSolidityTest to runForgeTest
 
 ## [0.55.1] - 2025-07-22
 
