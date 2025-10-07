@@ -39,7 +39,7 @@ runForge :: FilePath -> [String] -> IO (ExitCode, String, String)
 runForge testFile extraOptions = do
   withSystemTempDirectory "dapp-test" $ \root -> do
     let projectType = Foundry
-    ret <- runEnv testEnv $ compileWithForge projectType root testFile
+    ret <- runEnv testEnv $ compileWithForge root testFile
     case ret of
       Left e -> do
         putStrLn e

@@ -2002,7 +2002,7 @@ tests = testGroup "hevm"
               , ("test/contracts/fail/symbolicFail.sol",      "prove_symb_fail_allrev_selector.*", (False, False))
               , ("test/contracts/fail/symbolicFail.sol",      "prove_symb_fail_somerev_selector.*", (False, True))]
         forM_ cases $ \(testFile, match, expected) -> do
-          actual <- runForgeTestCustom testFile match Nothing Nothing False mempty Foundry
+          actual <- runForgeTestCustom testFile match Nothing Nothing False mempty
           putStrLnM $ "Test result for " <> testFile <> " match: " <> T.unpack match <> ": " <> show actual
           assertEqualM "Must match" expected actual
     , test "Trivial-Fail" $ do
@@ -2035,14 +2035,14 @@ tests = testGroup "hevm"
         runForgeTest testFile "prove_trivial" >>= assertEqualM "prove_trivial" (False, False)
         runForgeTest testFile "prove_trivial_dstest" >>= assertEqualM "prove_trivial_dstest" (False, False)
         runForgeTest testFile "prove_add" >>= assertEqualM "prove_add" (False, True)
-        runForgeTestCustom testFile "prove_smtTimeout" (Just 1) Nothing False mempty Foundry
+        runForgeTestCustom testFile "prove_smtTimeout" (Just 1) Nothing False mempty
           >>= assertEqualM "prove_smtTimeout" (True, False)
         runForgeTest testFile "prove_multi" >>= assertEqualM "prove_multi" (False, True)
         runForgeTest testFile "prove_distributivity" >>= assertEqualM "prove_distributivity" (False, True)
     , test "Loop-Tests" $ do
         let testFile = "test/contracts/pass/loops.sol"
-        runForgeTestCustom testFile "prove_loop" Nothing (Just 10) False mempty Foundry  >>= assertEqualM "test result" (True, False)
-        runForgeTestCustom testFile "prove_loop" Nothing (Just 100) False mempty Foundry >>= assertEqualM "test result" (False, False)
+        runForgeTestCustom testFile "prove_loop" Nothing (Just 10) False mempty  >>= assertEqualM "test result" (True, False)
+        runForgeTestCustom testFile "prove_loop" Nothing (Just 100) False mempty >>= assertEqualM "test result" (False, False)
     , test "Cheat-Codes-Pass" $ do
         let testFile = "test/contracts/pass/cheatCodes.sol"
         runForgeTest testFile ".*" >>= assertEqualM "test result" (True, False)
