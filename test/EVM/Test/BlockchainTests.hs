@@ -329,21 +329,6 @@ clearNonce c = set #nonce (Just 0) c
 clearCode :: Contract -> Contract
 clearCode c = set #code (RuntimeCode (ConcreteRuntimeCode "")) c
 
-instance FromJSON Contract where
-  parseJSON (JSON.Object v) = do
-    code <- (RuntimeCode . ConcreteRuntimeCode <$> (hexText <$> v .: "code"))
-    storage <- v .: "storage"
-    balance <- v .: "balance"
-    nonce   <- v .: "nonce"
-    pure $ EVM.initialContract code
-             & #balance .~ (Lit balance)
-             & #nonce   ?~ nonce
-             & #storage .~ (ConcreteStore storage)
-             & #origStorage .~ (ConcreteStore storage)
-
-  parseJSON invalid =
-    JSON.typeMismatch "Contract" invalid
-
 instance FromJSON BlockchainCase where
   parseJSON (JSON.Object v) = BlockchainCase
     <$> v .: "blocks"
