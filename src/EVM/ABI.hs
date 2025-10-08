@@ -520,10 +520,7 @@ decodeBuf tps buf =
       asBS = mconcat $ fmap word256Bytes (mapMaybe maybeLitWordSimp vs)
     in if not (all isLitWord vs)
        then (SAbi vs, "")
-       else case runGetOrFail (getAbiSeq (length tps) tps) (BSLazy.fromStrict asBS) of
-         Right ("", _, args) -> (CAbi (toList args), "")
-         Right (str, _, args) -> (CAbi (toList args), "with trailing bytes: " ++ show (BSLazy.unpack str))
-         Left (_, _, err) -> (NoVals, "error decoding abi: " ++ err)
+       else decodeBuf tps (ConcreteBuf asBS)
   where
     isDynamic t = abiKind t == Dynamic
 
