@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Fixed
 - We now extract more Keccak computations than before from the Props to assert
   more Keccak equalities.
+- Fixed false positive caused by loss of information about concrete 
+  Keccak computations.
 - Faster word256Bytes and word160Bytes functions to help concrete execution
   performance
 - RPC fetching was sometimes incorrect in case of writing to storage
@@ -58,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to maintain. Echidna is an excellent fuzzer that can be used instead.
 - Shrinking of the calldata is now more aggressive, shrinking even small (<1024B)
   buffers
+- Rename confusing function name runSolidityTest to runForgeTest
 
 ## [0.55.1] - 2025-07-22
 
