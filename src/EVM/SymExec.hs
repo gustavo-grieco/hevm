@@ -1180,7 +1180,7 @@ prettyCalldata cex buf sig types = headErr errSig (T.splitOn "(" sig) <> "(" <> 
       Right cd' -> Right $ Expr.drop 4 (Expr.simplify cd')
       Left e -> Left e
     (body, finalErr) = case argdata of
-      Right argdata' -> case decudeBufRobust types argdata' of
+      Right argdata' -> case decodeBuf types argdata' of
         (CAbi v, "") -> (T.intercalate "," (fmap showVal v), "")
         (CAbi v, err) -> (T.intercalate "," (fmap showVal v), dash <> err)
         (NoVals, err) -> case argdata' of
