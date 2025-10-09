@@ -1189,7 +1189,9 @@ executePrecompile preCompileAddr gasCap inOffset inSize outOffset outSize xs  = 
   input <- readMemory inOffset inSize
   let fees = vm.block.schedule
       cost = costOfPrecompile fees preCompileAddr input
-      notImplemented = whenSymbolicElse (partial $ PrecompileMissing preCompileAddr) (vmError $ NonexistentPrecompile preCompileAddr)
+      notImplemented = whenSymbolicElse
+        (partial $ PrecompileMissing {pc = vm.state.pc, addr = vm.state.contract, preAddr = preCompileAddr})
+        (vmError $ NonexistentPrecompile preCompileAddr)
       precompileFail = burn' (subGas gasCap cost) $ do
                          assign' (#state % #stack) (Lit 0 : xs)
                          pushTrace $ ErrorTrace PrecompileFailure
@@ -1793,7 +1795,7 @@ cheat gas (inOffset, inSize) (outOffset, outSize) xs = do
       case Map.lookup abi' cheatActions of
         Nothing -> do
           vm <- get
-          whenSymbolicElse (partial $ CheatCodeMissing vm.state.pc vm.state.contract abi') (vmError $ BadCheatCode "Cannot understand cheatcode." abi') 
+          whenSymbolicElse (partial $ CheatCodeMissing vm.state.pc vm.state.contract abi') (vmError $ BadCheatCode "Cannot understand cheatcode." abi')
         Just action -> action input
 
 type CheatAction t s = Expr Buf -> EVM t s ()
