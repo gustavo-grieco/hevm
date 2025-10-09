@@ -4,7 +4,6 @@ import EVM (initialContract, makeVm, setEIP4788Storage)
 import EVM.Concrete qualified as EVM
 import EVM.FeeSchedule (feeSchedule)
 import EVM.Fetch qualified
-import EVM.Format (hexText)
 import EVM.Stepper qualified
 import EVM.Transaction
 import EVM.UnitTest (writeTrace)
