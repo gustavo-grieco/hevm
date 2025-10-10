@@ -510,7 +510,15 @@ formatPartial = \case
       [ "contract addr: " <> pack (show addr)
       , "program counter: " <> pack (show pc)]
     ]
-  PrecompileMissing preAddr -> "Precompile at address " <> pack (show preAddr) <> " does not exist"
+
+  PrecompileMissing pc addr preAddr -> T.unlines
+    ["Precompile does not exist"
+    , indent 2 $ T.unlines
+      [ "precompile addr: " <> pack (show preAddr)
+      , "contract addr: " <> pack (show addr)
+      , "program counter: " <> pack (show pc)]
+    ]
+
 
 formatPartialDetailed :: Maybe (WarningData s t) -> PartialExec -> Text
 formatPartialDetailed warnData p =
@@ -520,7 +528,7 @@ formatPartialDetailed warnData p =
     MaxIterationsReached {..}  -> "Max iterations reached" <> toTxt addr pc
     JumpIntoSymbolicCode {..}  -> "Encountered a jump into a symbolic code" <> toTxt addr pc
     CheatCodeMissing {..}      -> "Cheat code not recognized: " <> T.pack (show selector) <> toTxt addr pc
-    PrecompileMissing {..}     -> "Precompile at address " <> pack (show preAddr) <> " does not exist"
+    PrecompileMissing {..}     -> "Precompile at address " <> pack (show preAddr) <> " does not exist, called from" <> toTxt addr pc
     BranchTooDeep {..}         -> "Branches too deep" <> toTxt addr pc
 
 getSrcInfo :: Maybe (WarningData s t) -> Expr EAddr -> Int -> String
