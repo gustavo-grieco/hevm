@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the constraints to be the one we computed it to be. Fixed.
 - We now properly collect all storage reads from the program and build
   a proper counterexample. Previously, some information might have been missing.
+- Fixed int calldata decoding of solc's v1 ABI encoding
 
 ## Changed
 - Updated forge to 1.2.3 and forge-std to 60acb7aa (1.9.7+)
