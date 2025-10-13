@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.56.0] - 2025-10-13
 
 ## Added
 - Output geth compatible jsonl traces in `hevm exec` via `--json-trace`
@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Fixed
 - We now extract more Keccak computations than before from the Props to assert
   more Keccak equalities.
-- Fixed false positive caused by loss of information about concrete 
+- Fixed false positive caused by loss of information about concrete
   Keccak computations.
 - Faster word256Bytes and word160Bytes functions to help concrete execution
   performance
