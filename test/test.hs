@@ -1052,6 +1052,13 @@ tests = testGroup "hevm"
         case runGetOrFail (getAbi (abiValueType x)) (runPut (putAbi x)) of
           Right ("", _, x') -> x' == x
           _ -> False
+    , test "ABI-negative-small-int" $ do
+        let bs = hex "ffffd6" -- -42 as int24
+        let padded = BS.replicate (32 - BS.length bs) 0 <> bs -- padded to 32 bytes
+        let withSelector = BS.replicate 4 0 <> padded -- added extra 4 bytes, simulating selector
+        case decodeAbiValues [AbiIntType 24] withSelector of
+          [AbiInt 24 val] -> assertEqualM "Incorrectly decoded int24 value" (-42) val
+          _ -> internalError "Error in decoding function"
     ]
   , testGroup "Solidity-Expressions"
     [ test "Trivial" $
