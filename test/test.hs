@@ -662,6 +662,12 @@ tests = testGroup "hevm"
         e2 = ConcreteBuf "Definitely not the same!"
       equal <- checkEquiv e1 e2
       assertBoolM "Should not be equivalent!" $ not equal
+    , testNoSimplify "simplify-comparison-GEq" $ do
+      let
+        expr = PEq (Lit 0x1) (GEq (Var "v") (Lit 0x2))
+        simp = Expr.simplifyProp expr
+      ret <- checkEquivPropAndLHS expr simp
+      assertEqualM "Must be equivalent" True ret
     ]
   -- These tests fuzz the simplifier by generating a random expression,
   -- applying some simplification rules, and then using the smt encoding to
