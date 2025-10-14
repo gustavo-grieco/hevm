@@ -1383,8 +1383,8 @@ simplifyProp prop =
     go (PEq (Lit 0) (Or a b)) = peq (Lit 0) a `PAnd` peq (Lit 0) b
 
     -- PEq rewrites (notice -- GT/GEq is always rewritten to LT by simplify)
-    go (PEq (Lit 1) (IsZero (LT a b))) = PLT a b
-    go (PEq (Lit 1) (IsZero (LEq a b))) = PLEq a b
+    go (PEq (Lit 1) (IsZero (LT a b))) = PLEq b a
+    go (PEq (Lit 1) (IsZero (LEq a b))) = PLT b a
     go (PEq (Lit 0) (IsZero a)) = PLT (Lit 0) a
     go (PEq a1 (Add a2 y)) | a1 == a2 = peq (Lit 0) y
 
