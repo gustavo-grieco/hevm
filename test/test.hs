@@ -5584,15 +5584,18 @@ checkEquivAndLHS orig simp = do
 
 checkEquivBase :: (Eq a, App m) => (a -> a -> Prop) -> a -> a -> Bool -> m (Maybe Bool)
 checkEquivBase mkprop l r expect = do
-  withSolvers Z3 1 1 (Just 1) $ \solvers -> do
-     res <- checkSatWithProps solvers [mkprop l r]
-     let ret = case res of
-           Qed -> Just True
-           Cex {} -> Just False
-           Error _ -> Just (not expect)
-           Unknown _ -> Nothing
-     when (ret == Just (not expect)) $ liftIO $ print res
-     pure ret
+  config <- readConfig
+  let noSimplifyEnv = Env {config = config {simp = False}}
+  liftIO $ runEnv noSimplifyEnv $ do
+    withSolvers Z3 1 1 (Just 1) $ \solvers -> do
+      res <- checkSatWithProps solvers [mkprop l r]
+      let ret = case res of
+            Qed -> Just True
+            Cex {} -> Just False
+            Error _ -> Just (not expect)
+            Unknown _ -> Nothing
+      when (ret == Just (not expect)) $ liftIO $ print res
+      pure ret
 
 -- | Takes a runtime code and calls it with the provided calldata
 
