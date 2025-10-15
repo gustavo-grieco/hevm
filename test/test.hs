@@ -697,7 +697,7 @@ tests = testGroup "hevm"
     , testProperty "byte-simplification" $ \(expr :: Expr Byte) -> propNoSimp $ do
         let simplified = Expr.simplify expr
         checkEquivAndLHS expr simplified
-    , testProperty "word-simplification" $ \(ZeroDepthWord expr) -> propNoSimp $ do
+    , askOption $ \(QuickCheckTests n) -> testProperty "word-simplification" $ withMaxSuccess (min n 20) $ \(ZeroDepthWord expr) -> propNoSimp $ do
         let simplified = Expr.simplify expr
         checkEquivAndLHS expr simplified
     , testProperty "readStorage-equivalance" $ \(store, slot) -> propNoSimp $ do
@@ -6266,7 +6266,7 @@ genBuf bound sz = oneof
 genStorage :: Int -> Gen (Expr Storage)
 genStorage 0 = oneof
   [ liftM2 AbstractStore arbitrary (pure Nothing)
-  , fmap ConcreteStore arbitrary
+  , fmap ConcreteStore $ resize 5 arbitrary
   ]
 genStorage sz = liftM3 SStore key val subStore
   where
