@@ -727,13 +727,21 @@ exec1 conf = do
 
         OpSload -> {-# SCC "OpSload" #-}
           case stk of
-            x:xs -> do
-              acc <- accessStorageForGas self x
-              let cost = if acc then g_warm_storage_read else g_cold_sload
-              burn cost $
-                accessStorage self x $ \y -> do
-                  next
-                  assign' (#state % #stack) (y:xs)
+            x:xs ->
+              let
+                finalizeLoad readValue = do next; assign' (#state % #stack) (readValue:xs)
+
+                symbolicRead :: EVM t s () = if this.external
+                  then accessStorage self x finalizeLoad
+                  else finalizeLoad $ Expr.readStorage' (Expr.concKeccakOnePass x) this.storage
+
+                concreteRead :: EVM t s () = do
+                  acc <- accessStorageForGas self x
+                  let cost = if acc then g_warm_storage_read else g_cold_sload
+                  burn cost $ if this.external
+                    then accessStorage self x finalizeLoad
+                    else finalizeLoad $ Lit $ accessConcreteStorage this.storage (forceLit x)
+              in whenSymbolicElse symbolicRead concreteRead
             _ -> underrun
 
         OpSstore -> {-# SCC "OpSstore" #-}
@@ -748,12 +756,6 @@ exec1 conf = do
 
                 concreteSstore :: EVM t s () = do
                   let
-                    accessConcreteStorage :: Expr Storage -> W256 -> W256
-                    accessConcreteStorage storage slot' =
-                      case storage of
-                        (ConcreteStore m) -> fromMaybe 0 $ Map.lookup slot' m
-                        _ -> internalError "Storage must be concrete"
-
                     slot = forceLit x
                     currentVal = accessConcreteStorage this.storage slot
                     newVal = forceLit new
@@ -1411,6 +1413,12 @@ fetchAccountWithFallback addr fallback continue =
             assign #result Nothing
             continue c
       GVar _ -> internalError "Unexpected GVar"
+
+accessConcreteStorage :: Expr Storage -> W256 -> W256
+accessConcreteStorage storage slot' =
+  case storage of
+    (ConcreteStore m) -> fromMaybe 0 $ Map.lookup slot' m
+    _ -> internalError "Storage must be concrete"
 
 accessStorage :: forall s t . (?conf :: Config, VMOps t, Typeable t) => Expr EAddr
   -> Expr EWord
