@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   node via `--cache-dir dir`.
 - Changed `verify*` methods to always require postcodition.
 - Removed type parameter of mutable memory from VM definition.
+- Removed simplification that were rewriting concrete bytes-to-be-overwritten
+  with zero bytes. Benefits were unclear while it had negative effect on
+  analysis' performance.
 
 ## [0.56.0] - 2025-10-13
 
