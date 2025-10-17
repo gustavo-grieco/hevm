@@ -736,7 +736,7 @@ exec1 conf = do
                   else finalizeLoad $ Expr.readStorage' (Expr.concKeccakOnePass x) this.storage
 
                 concreteRead :: EVM t s () = do
-                  acc <- accessStorageForGas self x
+                  acc <- accessStorageForGas self (forceLit x)
                   let cost = if acc then g_warm_storage_read else g_cold_sload
                   burn cost $ if this.external
                     then accessStorage self x finalizeLoad
@@ -767,7 +767,7 @@ exec1 conf = do
                           | (currentVal == originalVal) = g_sreset
                           | otherwise = g_sload
 
-                    acc <- accessStorageForGas self x
+                    acc <- accessStorageForGas self slot
                     let cold_storage_cost = if acc then 0 else g_cold_sload
                     burn (storage_cost + cold_storage_cost) $ do
                       updateVMState
@@ -1754,15 +1754,12 @@ accessAccountForGas addr = do
 
 -- | returns a wrapped boolean- if true, this slot has been touched before in the txn (warm gas cost as in EIP 2929)
 -- otherwise cold
-accessStorageForGas :: Expr EAddr -> Expr EWord -> EVM t s Bool
+accessStorageForGas :: Expr EAddr -> W256 -> EVM t s Bool
 accessStorageForGas addr key = do
   accessedStrkeys <- use (#tx % #subState % #accessedStorageKeys)
-  case maybeLitWordSimp key of
-    Just litword -> do
-      let accessed = member (addr, litword) accessedStrkeys
-      assign (#tx % #subState % #accessedStorageKeys) (insert (addr, litword) accessedStrkeys)
-      pure accessed
-    _ -> pure False
+  let accessed = member (addr, key) accessedStrkeys
+  unless accessed $ assign (#tx % #subState % #accessedStorageKeys) (insert (addr, key) accessedStrkeys)
+  pure accessed
 
 -- * Cheat codes
 
