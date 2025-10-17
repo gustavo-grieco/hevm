@@ -190,7 +190,6 @@ data TestOptions = TestOptions
   , match         ::Maybe String
   , prefix        ::String
   , ffi           ::Bool
-  , mockFile      ::Maybe String
   }
 
 testOptions :: Parser TestOptions
@@ -202,8 +201,6 @@ testOptions = TestOptions
   <*> (optional $ strOption $ long "match" <> help "Test case filter - only run methods matching regex")
   <*> (strOption $ long "prefix"  <> showDefault <> value "prove" <> help "Prefix for test cases to prove")
   <*> (switch $ long "ffi" <> help "Allow the usage of the hevm.ffi() cheatcode (WARNING: this allows test authors to execute arbitrary code on your machine)")
-  <*> (optional $ strOption $ long "mock-file" <> help "Read mocked RPC response data from JSON file")
-
 
 data EqOptions = EqOptions
   { codeA         ::Maybe ByteString
@@ -830,21 +827,13 @@ symvmFromCommand cExecOpts sOpts cFileOpts sess calldata = do
 unitTestOptions :: App m => TestOptions -> CommonOptions -> SolverGroup -> Maybe BuildOutput -> m (UnitTestOptions RealWorld)
 unitTestOptions testOpts cOpts solvers buildOutput = do
   root <- liftIO $ getRoot cOpts
-  mockData <- if isJust testOpts.mockFile then liftIO $ do
-      ret <- Fetch.readMockData (fromJust testOpts.mockFile)
-      case ret of
-        Left err -> do
-          putStrLn $ "Error reading mock file: " <> err
-          exitFailure
-        Right md -> pure md
-    else pure mempty
 
   let srcInfo = maybe emptyDapp (dappInfo root) buildOutput
   let blockUrlInfo = case (testOpts.number, testOpts.rpc) of
           (Just block, Just url) -> Just (Fetch.BlockNumber block, url)
           (Nothing, Just url) -> Just (Fetch.Latest, url)
           _ -> Nothing
-      rpcDat = Fetch.mkRpcInfo blockUrlInfo mockData
+      rpcDat = Fetch.mkRpcInfo blockUrlInfo
   sess <- Fetch.mkSession cOpts.cacheDir
   params <- paramsFromRpc rpcDat sess
   let testn = params.number
