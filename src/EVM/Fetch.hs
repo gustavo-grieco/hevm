@@ -50,7 +50,6 @@ import Data.Aeson.Optics
 import Data.ByteString qualified as BS
 import Data.Text (Text, unpack, pack)
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as T
 import Data.Foldable (Foldable(..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, fromJust)
@@ -64,8 +63,6 @@ import Control.Monad.IO.Class
 import Control.Monad (when)
 import EVM.Effects
 import qualified EVM.Expr as Expr
-import Data.ByteString.Base16 qualified as BS16
-import Data.ByteString.Char8 qualified as Char8
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
 
 type Fetcher t m s = App m => Query t s -> m (EVM t s ())
