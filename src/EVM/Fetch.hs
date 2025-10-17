@@ -148,19 +148,16 @@ data RPCContract = RPCContract
 
 data RpcInfo = RpcInfo
   { blockNumURL  :: Maybe (BlockNumber, Text) -- ^ (block number, RPC url)
-  , mockContract :: Maybe (Map.Map Addr RPCContract) -- ^ mock contracts (addr -> contract)
-  , mockSlot     :: Maybe (Map.Map (Addr, W256) W256) -- ^ mock storage slots (addr, slot) -> value
-  , mockBlock    :: Maybe (Map.Map W256 Block) -- ^ mock blocks (block number -> block)
   }
   deriving (Show)
 instance Semigroup RpcInfo where
-  RpcInfo a1 a2 a3 a4 <> RpcInfo b1 b2 b3 b4 =
-    RpcInfo (a1 <|> b1) (a2 <|> b2) (a3 <|> b3) (a4 <|> b4)
+  RpcInfo a1 <> RpcInfo b1 =
+    RpcInfo (a1 <|> b1)
 instance Monoid RpcInfo where
-  mempty = RpcInfo Nothing Nothing Nothing Nothing
+  mempty = RpcInfo Nothing
 
 mkRpcInfo :: Maybe (BlockNumber, Text) -> RpcInfo
-mkRpcInfo blockNumURL = RpcInfo blockNumURL undefined undefined undefined
+mkRpcInfo blockNumURL = RpcInfo blockNumURL
 
 rpc :: String -> [Value] -> Value
 rpc method args = object

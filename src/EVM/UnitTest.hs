@@ -553,15 +553,7 @@ paramsFromRpc rpcInfo sess = do
   (miner,ts,blockNum,ran,limit,base) <- case rpcInfo.blockNumURL of
     Nothing -> pure (SymAddr "miner", Lit 0, Lit 0, 0, 0, 0)
     Just (Fetch.Latest, url) -> fetch Fetch.Latest url
-    Just (Fetch.BlockNumber block, url) -> case rpcInfo.mockBlock >>= Map.lookup block of
-        Nothing -> fetch (Fetch.BlockNumber block) url
-        Just b ->pure (b.coinbase
-                      , b.timestamp
-                      , b.number
-                      , b.prevRandao
-                      , b.gaslimit
-                      , b.baseFee
-                      )
+    Just (Fetch.BlockNumber block, url) -> fetch (Fetch.BlockNumber block) url
   let ts' = fromMaybe (internalError "received unexpected symbolic timestamp via rpc") (maybeLitWordSimp ts)
   pure $ TestVMParams
     -- TODO: make this symbolic! It needs some tweaking to the way that our
