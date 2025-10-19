@@ -340,9 +340,9 @@ main = do
             -- TODO: which functions here actually require a BuildOutput, and which can take it as a Maybe?
             unitTestOpts <- unitTestOptions testOpts cOpts solvers (Just out)
             res <- unitTest unitTestOpts out
-            liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> testOpts.number) $ \(dir, block) -> do
+            liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> testOpts.number) $ \(dir, fetchedBlock) -> do
               cache <- readMVar (unitTestOpts.sess.sharedCache)
-              Fetch.saveCache dir block cache
+              Fetch.saveCache dir fetchedBlock cache
             liftIO $ unless (uncurry (&&) res) exitFailure
     Exec cFileOpts execOpts cExecOpts cOpts-> do
       env <- makeEnv cOpts
@@ -596,9 +596,9 @@ launchExec cFileOpts execOpts cExecOpts cOpts = do
              pure vm'
            else EVM.Stepper.interpret fetcher vm EVM.Stepper.runFully
     writeTraceDapp dapp vm'
-    liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> cExecOpts.block) $ \(dir, block) -> do
+    liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> cExecOpts.block) $ \(dir, fetchedBlock) -> do
       cache <- readMVar sess.sharedCache
-      Fetch.saveCache dir block cache
+      Fetch.saveCache dir fetchedBlock cache
     case vm'.result of
       Just (VMFailure (Revert msg)) -> liftIO $ do
         let res = case msg of
