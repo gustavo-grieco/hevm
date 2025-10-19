@@ -117,13 +117,23 @@ instance FromJSON FetchCache where
   parseJSON = withObject "FetchCache" $ \v -> FetchCache
     <$> (Map.fromList <$> v .: "contracts")
     <*> (Map.fromList . map (first (read . T.unpack)) <$> v .: "slots")
-    <*> v .: "blocks"
+    <*> (v .:? "blocks" .!= Map.empty)
 
 instance Show FetchCache where
   show (FetchCache c s b) =
     "FetchCache { contractCache: " ++ show (Map.keys c) ++
     ", slotCache: " ++ show (Map.keys s) ++
     ", blockCache: " ++ show (Map.keys b) ++ " }"
+
+data Signedness = Signed | Unsigned
+  deriving (Show)
+
+showDec :: Signedness -> W256 -> T.Text
+showDec signed (W256 w) = T.pack (show (i :: Integer))
+  where
+    i = case signed of
+          Signed   -> fromIntegral (fromIntegral w :: Int)
+          Unsigned -> fromIntegral w
 
 -- | Abstract representation of an RPC fetch request
 data RpcQuery a where
@@ -357,7 +367,15 @@ fetchSlotWithSession sess n url addr slot =
 fetchBlockWithSession :: Config -> Session  -> BlockNumber -> Text -> IO (Maybe Block)
 fetchBlockWithSession conf sess nPre url = do
   n <- getLatestBlockNum conf sess nPre url
-  internalBlockFetch conf sess n url
+  case n of
+    Latest -> internalBlockFetch conf sess n url
+    EVM.Fetch.BlockNumber blockNum -> do
+      cache <- readMVar sess.sharedCache
+      case Map.lookup blockNum cache.blockCache of
+        Just b -> do
+          when (conf.debug) $ putStrLn $ "-> Using cached block " ++ show n
+          pure (Just b)
+        Nothing -> internalBlockFetch conf sess n url
 
 internalBlockFetch :: Config -> Session -> BlockNumber -> Text -> IO (Maybe Block)
 internalBlockFetch conf sess n url = do
@@ -387,15 +405,15 @@ fetchSlotFrom sess nPre url addr slot = do
           pure $ c { slotCache = Map.insert (addr, slot) val c.slotCache }
       pure ret
 
-cacheFileName :: FilePath
-cacheFileName = "rpc-cache.json"
+cacheFileName :: W256 -> FilePath
+cacheFileName n = "rpc-cache-" ++ T.unpack (showDec Unsigned n) ++ ".json"
 
 emptyCache :: FetchCache
 emptyCache = FetchCache Map.empty Map.empty Map.empty
 
-loadCache :: FilePath -> IO FetchCache
-loadCache dir = do
-  let fp = dir </> cacheFileName
+loadCache :: FilePath -> W256 -> IO FetchCache
+loadCache dir n = do
+  let fp = dir </> cacheFileName n
   exists <- doesFileExist fp
   if exists
     then do
@@ -413,19 +431,20 @@ loadCache dir = do
     else
       pure emptyCache
 
-saveCache :: FilePath -> FetchCache -> IO ()
-saveCache dir cache = do
+saveCache :: FilePath -> W256 -> FetchCache -> IO ()
+saveCache dir n cache = do
   createDirectoryIfMissing True dir
-  let fp = dir </> cacheFileName
+  let fp = dir </> cacheFileName n
+  putStrLn $ "Saving RPC cache to " ++ fp
   BSL.writeFile fp (encodePretty cache)
 
-mkSession :: App m => Maybe FilePath -> m Session
-mkSession cacheDir = do
+mkSession :: App m => Maybe FilePath -> Maybe W256 -> m Session
+mkSession cacheDir mblock = do
   sess <- liftIO NetSession.newAPISession
   initialCache <-
-    case cacheDir of
-      Nothing -> pure emptyCache
-      Just dir -> liftIO $ loadCache dir
+    case (cacheDir, mblock) of
+      (Just dir, Just block) -> liftIO $ loadCache dir block
+      _ -> pure emptyCache
   cache <- liftIO $ newMVar initialCache
   latestBlockNum <- liftIO $ newMVar Nothing
   pure $ Session sess latestBlockNum cache cacheDir
@@ -433,7 +452,7 @@ mkSession cacheDir = do
 -- Only used for testing (test.hs, BlockchainTests.hs)
 zero :: Natural -> Maybe Natural -> Fetcher t m s
 zero smtjobs smttimeout q = do
-  sess <- mkSession Nothing
+  sess <- mkSession Nothing Nothing
   withSolvers Z3 smtjobs 1 smttimeout $ \s ->
     oracle s (Just sess) mempty q
 
@@ -462,24 +481,36 @@ oracle solvers preSess rpcInfo q = do
 
     PleaseFetchContract addr base continue -> withSession addr (continue (nothingContract base addr)) $ \sess -> do
       conf <- readConfig
-      when (conf.debug) $ liftIO $ putStrLn $ "Fetching contract at " ++ show addr
-      when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching contract at address 0"
-      contract <- case rpcInfo.blockNumURL of
-        Nothing -> pure $ Just $ nothingContract base addr
-        Just (block, url) -> liftIO $ fetchContractWithSession conf sess block url addr
-      case contract of
-        Just x -> pure $ continue x
-        Nothing -> internalError $ "oracle error: " ++ show q
+      cache <- liftIO $ readMVar sess.sharedCache
+      case Map.lookup addr cache.contractCache of
+        Just c -> do
+          when (conf.debug) $ liftIO $ putStrLn $ "-> Using cached contract at " ++ show addr
+          pure $ continue c
+        Nothing -> do
+          when (conf.debug) $ liftIO $ putStrLn $ "Fetching contract at " ++ show addr
+          when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching contract at address 0"
+          contract <- case rpcInfo.blockNumURL of
+            Nothing -> pure $ Just $ nothingContract base addr
+            Just (block, url) -> liftIO $ fetchContractWithSession conf sess block url addr
+          case contract of
+            Just x -> pure $ continue x
+            Nothing -> internalError $ "oracle error: " ++ show q
 
     PleaseFetchSlot addr slot continue -> withSession addr (continue 0)$ \sess -> do
       conf <- readConfig
-      when (conf.debug) $ liftIO $ putStrLn $ "Fetching slot " <> (show slot) <> " at " <> (show addr)
-      when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at address 0"
-      case rpcInfo.blockNumURL of
-        Nothing -> pure $ continue 0
-        Just (block, url) -> fetchSlotFrom sess block url addr slot >>= \case
-            Just x  -> pure $ continue x
-            Nothing -> internalError $ "oracle error: " ++ show q
+      cache <- liftIO $ readMVar sess.sharedCache
+      case Map.lookup (addr, slot) cache.slotCache of
+        Just s -> do
+          when (conf.debug) $ liftIO $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
+          pure $ continue s
+        Nothing -> do
+          when (conf.debug) $ liftIO $ putStrLn $ "Fetching slot " <> (show slot) <> " at " <> (show addr)
+          when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at address 0"
+          case rpcInfo.blockNumURL of
+            Nothing -> pure $ continue 0
+            Just (block, url) -> fetchSlotFrom sess block url addr slot >>= \case
+                Just x  -> pure $ continue x
+                Nothing -> internalError $ "oracle error: " ++ show q
 
     PleaseReadEnv variable continue -> do
       value <- liftIO $ lookupEnv variable

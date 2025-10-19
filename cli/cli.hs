@@ -13,6 +13,7 @@ import Control.Monad.ST (RealWorld, stToIO)
 import Control.Monad.IO.Unlift
 import Control.Exception (try, IOException)
 import Data.ByteString (ByteString)
+import Control.Concurrent.MVar (readMVar)
 import qualified Data.ByteString.Lazy as BS
 import Data.ByteString.Builder (toLazyByteString)
 import qualified Data.ByteString.Char8 as BC
@@ -339,6 +340,9 @@ main = do
             -- TODO: which functions here actually require a BuildOutput, and which can take it as a Maybe?
             unitTestOpts <- unitTestOptions testOpts cOpts solvers (Just out)
             res <- unitTest unitTestOpts out
+            liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> testOpts.number) $ \(dir, block) -> do
+              cache <- readMVar (unitTestOpts.sess.sharedCache)
+              Fetch.saveCache dir block cache
             liftIO $ unless (uncurry (&&) res) exitFailure
     Exec cFileOpts execOpts cExecOpts cOpts-> do
       env <- makeEnv cOpts
@@ -495,7 +499,7 @@ symbCheck :: App m => CommonFileOptions -> SymbolicOptions -> CommonExecOptions 
 symbCheck cFileOpts sOpts cExecOpts cOpts = do
   let block' = maybe Fetch.Latest Fetch.BlockNumber cExecOpts.block
       blockUrlInfo = (,) block' <$> cExecOpts.rpc
-  sess <- Fetch.mkSession cOpts.cacheDir
+  sess <- Fetch.mkSession cOpts.cacheDir cExecOpts.block
   calldata <- buildCalldata cOpts sOpts.sig sOpts.arg
   preState <- symvmFromCommand cExecOpts sOpts cFileOpts sess calldata
   errCodes <- case sOpts.assertions of
@@ -519,6 +523,9 @@ symbCheck cFileOpts sOpts cExecOpts cOpts = do
                             }
     let fetcher = Fetch.oracle solvers (Just sess) veriOpts.rpcInfo
     (expr, res) <- verify solvers fetcher veriOpts preState (Just $ checkAssertions errCodes)
+    liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> cExecOpts.block) $ \(dir, block) -> do
+      cache <- readMVar sess.sharedCache
+      Fetch.saveCache dir block cache
     case res of
       [Qed] -> do
         liftIO $ putStrLn "\nQED: No reachable property violations discovered\n"
@@ -563,7 +570,7 @@ areAnyPrefixOf prefixes t = any (flip T.isPrefixOf t) prefixes
 launchExec :: App m => CommonFileOptions -> ExecOptions -> CommonExecOptions -> CommonOptions -> m ()
 launchExec cFileOpts execOpts cExecOpts cOpts = do
   dapp <- getSrcInfo execOpts cOpts
-  sess <- Fetch.mkSession cOpts.cacheDir
+  sess <- Fetch.mkSession cOpts.cacheDir cExecOpts.block
   vm <- vmFromCommand cOpts cExecOpts cFileOpts execOpts sess
   let
     block = maybe Fetch.Latest Fetch.BlockNumber cExecOpts.block
@@ -589,6 +596,9 @@ launchExec cFileOpts execOpts cExecOpts cOpts = do
              pure vm'
            else EVM.Stepper.interpret fetcher vm EVM.Stepper.runFully
     writeTraceDapp dapp vm'
+    liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> cExecOpts.block) $ \(dir, block) -> do
+      cache <- readMVar sess.sharedCache
+      Fetch.saveCache dir block cache
     case vm'.result of
       Just (VMFailure (Revert msg)) -> liftIO $ do
         let res = case msg of
@@ -834,7 +844,7 @@ unitTestOptions testOpts cOpts solvers buildOutput = do
           (Nothing, Just url) -> Just (Fetch.Latest, url)
           _ -> Nothing
       rpcDat = Fetch.mkRpcInfo blockUrlInfo
-  sess <- Fetch.mkSession cOpts.cacheDir
+  sess <- Fetch.mkSession cOpts.cacheDir testOpts.number
   params <- paramsFromRpc rpcDat sess
   let testn = params.number
       block' = if 0 == testn
