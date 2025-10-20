@@ -13,6 +13,7 @@ import Control.Monad.ST (RealWorld, stToIO)
 import Control.Monad.IO.Unlift
 import Control.Exception (try, IOException)
 import Data.ByteString (ByteString)
+import Control.Concurrent.MVar (readMVar)
 import qualified Data.ByteString.Lazy as BS
 import Data.ByteString.Builder (toLazyByteString)
 import qualified Data.ByteString.Char8 as BC
@@ -99,6 +100,7 @@ data CommonOptions = CommonOptions
   , maxDepth      ::Maybe Int
   , noSimplify    ::Bool
   , onlyDeployed  ::Bool
+  , cacheDir      ::Maybe String
   }
 
 commonOptions :: Parser CommonOptions
@@ -127,6 +129,7 @@ commonOptions = CommonOptions
   <*> (optional $ option auto $ long "max-depth" <> help "Limit maximum depth of branching during exploration (default: unlimited)")
   <*> (switch $ long "no-simplify" <> help "Don't perform simplification of expressions")
   <*> (switch $ long "only-deployed" <> help "When trying to resolve unknown addresses, only use addresses of deployed contracts")
+  <*> (optional $ strOption $ long "cache-dir" <> help "Directory to save and load RPC cache")
 
 data CommonExecOptions = CommonExecOptions
   { address       ::Maybe Addr
@@ -188,7 +191,6 @@ data TestOptions = TestOptions
   , match         ::Maybe String
   , prefix        ::String
   , ffi           ::Bool
-  , mockFile      ::Maybe String
   }
 
 testOptions :: Parser TestOptions
@@ -200,8 +202,6 @@ testOptions = TestOptions
   <*> (optional $ strOption $ long "match" <> help "Test case filter - only run methods matching regex")
   <*> (strOption $ long "prefix"  <> showDefault <> value "prove" <> help "Prefix for test cases to prove")
   <*> (switch $ long "ffi" <> help "Allow the usage of the hevm.ffi() cheatcode (WARNING: this allows test authors to execute arbitrary code on your machine)")
-  <*> (optional $ strOption $ long "mock-file" <> help "Read mocked RPC response data from JSON file")
-
 
 data EqOptions = EqOptions
   { codeA         ::Maybe ByteString
@@ -340,6 +340,9 @@ main = do
             -- TODO: which functions here actually require a BuildOutput, and which can take it as a Maybe?
             unitTestOpts <- unitTestOptions testOpts cOpts solvers (Just out)
             res <- unitTest unitTestOpts out
+            liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> testOpts.number) $ \(dir, fetchedBlock) -> do
+              cache <- readMVar (unitTestOpts.sess.sharedCache)
+              Fetch.saveCache dir fetchedBlock cache
             liftIO $ unless (uncurry (&&) res) exitFailure
     Exec cFileOpts execOpts cExecOpts cOpts-> do
       env <- makeEnv cOpts
@@ -496,7 +499,7 @@ symbCheck :: App m => CommonFileOptions -> SymbolicOptions -> CommonExecOptions 
 symbCheck cFileOpts sOpts cExecOpts cOpts = do
   let block' = maybe Fetch.Latest Fetch.BlockNumber cExecOpts.block
       blockUrlInfo = (,) block' <$> cExecOpts.rpc
-  sess <- Fetch.mkSession
+  sess <- Fetch.mkSession cOpts.cacheDir cExecOpts.block
   calldata <- buildCalldata cOpts sOpts.sig sOpts.arg
   preState <- symvmFromCommand cExecOpts sOpts cFileOpts sess calldata
   errCodes <- case sOpts.assertions of
@@ -520,6 +523,9 @@ symbCheck cFileOpts sOpts cExecOpts cOpts = do
                             }
     let fetcher = Fetch.oracle solvers (Just sess) veriOpts.rpcInfo
     (expr, res) <- verify solvers fetcher veriOpts preState (Just $ checkAssertions errCodes)
+    liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> cExecOpts.block) $ \(dir, block) -> do
+      cache <- readMVar sess.sharedCache
+      Fetch.saveCache dir block cache
     case res of
       [Qed] -> do
         liftIO $ putStrLn "\nQED: No reachable property violations discovered\n"
@@ -564,7 +570,7 @@ areAnyPrefixOf prefixes t = any (flip T.isPrefixOf t) prefixes
 launchExec :: App m => CommonFileOptions -> ExecOptions -> CommonExecOptions -> CommonOptions -> m ()
 launchExec cFileOpts execOpts cExecOpts cOpts = do
   dapp <- getSrcInfo execOpts cOpts
-  sess <- Fetch.mkSession
+  sess <- Fetch.mkSession cOpts.cacheDir cExecOpts.block
   vm <- vmFromCommand cOpts cExecOpts cFileOpts execOpts sess
   let
     block = maybe Fetch.Latest Fetch.BlockNumber cExecOpts.block
@@ -590,6 +596,9 @@ launchExec cFileOpts execOpts cExecOpts cOpts = do
              pure vm'
            else EVM.Stepper.interpret fetcher vm EVM.Stepper.runFully
     writeTraceDapp dapp vm'
+    liftIO $ forM_ ((,) <$> cOpts.cacheDir <*> cExecOpts.block) $ \(dir, fetchedBlock) -> do
+      cache <- readMVar sess.sharedCache
+      Fetch.saveCache dir fetchedBlock cache
     case vm'.result of
       Just (VMFailure (Revert msg)) -> liftIO $ do
         let res = case msg of
@@ -828,22 +837,14 @@ symvmFromCommand cExecOpts sOpts cFileOpts sess calldata = do
 unitTestOptions :: App m => TestOptions -> CommonOptions -> SolverGroup -> Maybe BuildOutput -> m (UnitTestOptions RealWorld)
 unitTestOptions testOpts cOpts solvers buildOutput = do
   root <- liftIO $ getRoot cOpts
-  mockData <- if isJust testOpts.mockFile then liftIO $ do
-      ret <- Fetch.readMockData (fromJust testOpts.mockFile)
-      case ret of
-        Left err -> do
-          putStrLn $ "Error reading mock file: " <> err
-          exitFailure
-        Right md -> pure md
-    else pure mempty
 
   let srcInfo = maybe emptyDapp (dappInfo root) buildOutput
   let blockUrlInfo = case (testOpts.number, testOpts.rpc) of
           (Just block, Just url) -> Just (Fetch.BlockNumber block, url)
           (Nothing, Just url) -> Just (Fetch.Latest, url)
           _ -> Nothing
-      rpcDat = Fetch.mkRpcInfo blockUrlInfo mockData
-  sess <- Fetch.mkSession
+      rpcDat = Fetch.mkRpcInfo blockUrlInfo
+  sess <- Fetch.mkSession cOpts.cacheDir testOpts.number
   params <- paramsFromRpc rpcDat sess
   let testn = params.number
       block' = if 0 == testn
