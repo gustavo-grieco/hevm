@@ -350,10 +350,10 @@ fetchSlotWithCache conf sess nPre url addr slot = do
   cache <- readMVar sess.sharedCache
   case Map.lookup (addr, slot) cache.slotCache of
     Just s -> do
-      putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
+            when (conf.debug) $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
       pure $ Just s
     Nothing -> do
-      putStrLn $ "-> Fetching slot " <> show slot <> " at " <> show addr
+      when (conf.debug) $ putStrLn $ "-> Fetching slot " <> show slot <> " at " <> show addr
       ret <- fetchSlotWithSession sess.sess n url addr slot
       when (isJust ret) $ let val = fromJust ret in
         modifyMVar_ sess.sharedCache $ \c ->
@@ -441,8 +441,7 @@ saveCache dir n cache = do
 mkSession :: App m => Maybe FilePath -> Maybe W256 -> m Session
 mkSession cacheDir mblock = do
   sess <- liftIO NetSession.newAPISession
-  initialCache <-
-    case (cacheDir, mblock) of
+  initialCache <- case (cacheDir, mblock) of
       (Just dir, Just block) -> liftIO $ loadCache dir block
       _ -> pure emptyCache
   cache <- liftIO $ newMVar initialCache
