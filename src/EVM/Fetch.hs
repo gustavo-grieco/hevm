@@ -11,10 +11,10 @@ module EVM.Fetch
   , RpcInfo (..)
   , RpcQuery (..)
   , EVM.Fetch.zero
- -- , readMockData
   , BlockNumber (..)
   , mkRpcInfo
   , mkSession
+  , mkSessionWithoutCache
   , Session (..)
   , FetchCache (..)
   , addFetchCache
@@ -350,7 +350,7 @@ fetchSlotWithCache conf sess nPre url addr slot = do
   cache <- readMVar sess.sharedCache
   case Map.lookup (addr, slot) cache.slotCache of
     Just s -> do
-            when (conf.debug) $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
+      when (conf.debug) $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
       pure $ Just s
     Nothing -> do
       when (conf.debug) $ putStrLn $ "-> Fetching slot " <> show slot <> " at " <> show addr
@@ -448,10 +448,13 @@ mkSession cacheDir mblock = do
   latestBlockNum <- liftIO $ newMVar Nothing
   pure $ Session sess latestBlockNum cache cacheDir
 
+mkSessionWithoutCache :: App m => m Session
+mkSessionWithoutCache = mkSession Nothing Nothing
+
 -- Only used for testing (test.hs, BlockchainTests.hs)
 zero :: Natural -> Maybe Natural -> Fetcher t m s
 zero smtjobs smttimeout q = do
-  sess <- mkSession Nothing Nothing
+  sess <- mkSessionWithoutCache
   withSolvers Z3 smtjobs 1 smttimeout $ \s ->
     oracle s (Just sess) mempty q
 
