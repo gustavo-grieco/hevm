@@ -740,50 +740,51 @@ exec1 conf = do
           notStatic $
           case stk of
             x:new:xs ->
-              accessStorage self x $ \current -> do
-                ensureGas g_callstipend $ do
+              let
+                updateVMState :: EVM t s () = do
+                  next
+                  assign' (#state % #stack) xs
+                  modifying (#env % #contracts % ix self % #storage) (writeStorage x new)
+
+                concreteSstore :: EVM t s () = do
                   let
-                    original =
-                      case Expr.concKeccakSimpExpr $ SLoad x this.origStorage of
-                        Lit v -> v
-                        _ -> 0
-                    storage_cost =
-                      case (maybeLitWordSimp current, maybeLitWordSimp new) of
-                        (Just current', Just new') ->
-                           if (current' == new') then g_sload
-                           else if (current' == original) && (original == 0) then g_sset
-                           else if (current' == original) then g_sreset
-                           else g_sload
+                    accessConcreteStorage :: Expr Storage -> W256 -> W256
+                    accessConcreteStorage storage slot' =
+                      case storage of
+                        (ConcreteStore m) -> fromMaybe 0 $ Map.lookup slot' m
+                        _ -> internalError "Storage must be concrete"
 
-                        -- if any of the arguments are symbolic,
-                        -- assume worst case scenario
-                        _-> g_sset
+                    slot = forceLit x
+                    currentVal = accessConcreteStorage this.storage slot
+                    newVal = forceLit new
+                    originalVal = accessConcreteStorage this.origStorage slot
+                  ensureGas g_callstipend $ do
+                    let storage_cost
+                          | (currentVal == newVal) = g_sload
+                          | (currentVal == originalVal) && (originalVal == 0) = g_sset
+                          | (currentVal == originalVal) = g_sreset
+                          | otherwise = g_sload
 
-                  acc <- accessStorageForGas self x
-                  let cold_storage_cost = if acc then 0 else g_cold_sload
-                  burn (storage_cost + cold_storage_cost) $ do
-                    next
-                    assign' (#state % #stack) xs
-                    modifying (#env % #contracts % ix self % #storage) (writeStorage x new)
+                    acc <- accessStorageForGas self x
+                    let cold_storage_cost = if acc then 0 else g_cold_sload
+                    burn (storage_cost + cold_storage_cost) $ do
+                      updateVMState
 
-                    case (maybeLitWordSimp current, maybeLitWordSimp new) of
-                       (Just current', Just new') ->
-                          unless (current' == new') $
-                            if current' == original then
-                              when (original /= 0 && new' == 0) $
-                                refund (g_sreset + g_access_list_storage_key)
-                            else do
-                              when (original /= 0) $
-                                if current' == 0
-                                then unRefund (g_sreset + g_access_list_storage_key)
-                                else when (new' == 0) $ refund (g_sreset + g_access_list_storage_key)
-                              when (original == new') $
-                                if original == 0
-                                then refund (g_sset - g_sload)
-                                else refund (g_sreset - g_sload)
-                       -- if any of the arguments are symbolic,
-                       -- don't change the refund counter
-                       _ -> noop
+                      unless (currentVal == newVal) $
+                        if currentVal == originalVal then
+                          when (originalVal /= 0 && newVal == 0) $
+                            refund (g_sreset + g_access_list_storage_key)
+                        else do
+                          when (originalVal /= 0) $
+                            if currentVal == 0
+                            then unRefund (g_sreset + g_access_list_storage_key)
+                            else when (newVal == 0) $ refund (g_sreset + g_access_list_storage_key)
+                          when (originalVal == newVal) $
+                            if originalVal == 0
+                            then refund (g_sset - g_sload)
+                            else refund (g_sreset - g_sload)
+              in
+                whenSymbolicElse updateVMState concreteSstore
             _ -> underrun
 
         OpTload -> {-# SCC "OpTload" #-}
