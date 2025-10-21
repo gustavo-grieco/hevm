@@ -475,7 +475,10 @@ oracle solvers preSess rpcInfo q = do
     PleaseAskSMT branchcondition pathconditions continue -> do
          let pathconds = foldl' PAnd (PBool True) pathconditions
          -- Is is possible to satisfy the condition?
-         continue <$> checkBranch solvers (branchcondition ./= (Lit 0)) pathconds
+         case branchcondition of
+           Lit 0 -> pure $ continue (Case False)
+           Lit _ -> pure $ continue (Case True)
+           _     -> continue <$> checkBranch solvers (branchcondition ./= (Lit 0)) pathconds
 
     PleaseGetSols symExpr numBytes pathconditions continue -> do
          let pathconds = foldl' PAnd (PBool True) pathconditions
