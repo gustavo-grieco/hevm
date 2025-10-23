@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## Added
-- We support empty RPC in equivalence checking via `--empty-rpc`
+- We support RPC in equivalence checking now
 
 ## Fixed
 - Fix incorrect simplification rule for `PEq (Lit 1) (IsZero (LT a b))`
