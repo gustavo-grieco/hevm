@@ -15,6 +15,7 @@ module EVM.Fetch
   , mkRpcInfo
   , mkSession
   , mkSessionWithoutCache
+  , mkSessionEmpty
   , Session (..)
   , FetchCache (..)
   , addFetchCache
@@ -72,6 +73,7 @@ data Session = Session
   , latestBlockNum :: MVar (Maybe W256)
   , sharedCache    :: MVar FetchCache
   , cacheDir       :: Maybe FilePath
+  , forceEmpty     :: Bool
   }
 
 data FetchCache = FetchCache
@@ -298,24 +300,27 @@ fetchWithSession url sess x = do
 
 fetchContractWithSession :: Config -> Session -> BlockNumber -> Text -> Addr -> IO (Maybe Contract)
 fetchContractWithSession conf sess nPre url addr = do
-  n <- getLatestBlockNum conf sess nPre url
-  cache <- readMVar sess.sharedCache
-  case Map.lookup addr cache.contractCache of
-    Just c -> do
-      when (conf.debug) $ putStrLn $ "-> Using cached contract at " ++ show addr
-      pure $ Just c
-    Nothing -> do
-      when (conf.debug) $ putStrLn $ "-> Fetching contract at " ++ show addr
-      runMaybeT $ do
-        let fetch :: Show a => RpcQuery a -> IO (Maybe a)
-            fetch = fetchQuery n (fetchWithSession url sess.sess)
-        code    <- MaybeT $ fetch (QueryCode addr)
-        nonce   <- MaybeT $ fetch (QueryNonce addr)
-        balance <- MaybeT $ fetch (QueryBalance addr)
-        let contr = makeContractFromRPC (RPCContract code nonce balance)
-        liftIO $ modifyMVar_ sess.sharedCache $ \c ->
-          pure $ c { contractCache = Map.insert addr contr c.contractCache }
-        pure contr
+  case sess.forceEmpty of
+    True -> pure $ Just $ unknownContract (LitAddr addr)
+    False -> do
+      n <- getLatestBlockNum conf sess nPre url
+      cache <- readMVar sess.sharedCache
+      case Map.lookup addr cache.contractCache of
+        Just c -> do
+          when (conf.debug) $ putStrLn $ "-> Using cached contract at " ++ show addr
+          pure $ Just c
+        Nothing -> do
+          when (conf.debug) $ putStrLn $ "-> Fetching contract at " ++ show addr
+          runMaybeT $ do
+            let fetch :: Show a => RpcQuery a -> IO (Maybe a)
+                fetch = fetchQuery n (fetchWithSession url sess.sess)
+            code    <- MaybeT $ fetch (QueryCode addr)
+            nonce   <- MaybeT $ fetch (QueryNonce addr)
+            balance <- MaybeT $ fetch (QueryBalance addr)
+            let contr = makeContractFromRPC (RPCContract code nonce balance)
+            liftIO $ modifyMVar_ sess.sharedCache $ \c ->
+              pure $ c { contractCache = Map.insert addr contr c.contractCache }
+            pure contr
 
 -- In case the user asks for Latest, and we have not yet established what Latest is,
 -- we fetch the block to find out. Otherwise, we update Latest to the value we have stored
@@ -346,19 +351,22 @@ makeContractFromRPC (RPCContract code nonce balance) =
 
 fetchSlotWithCache :: Config -> Session -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
 fetchSlotWithCache conf sess nPre url addr slot = do
-  n <- getLatestBlockNum conf sess nPre url
-  cache <- readMVar sess.sharedCache
-  case Map.lookup (addr, slot) cache.slotCache of
-    Just s -> do
-      when (conf.debug) $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
-      pure $ Just s
-    Nothing -> do
-      when (conf.debug) $ putStrLn $ "-> Fetching slot " <> show slot <> " at " <> show addr
-      ret <- fetchSlotWithSession sess.sess n url addr slot
-      when (isJust ret) $ let val = fromJust ret in
-        modifyMVar_ sess.sharedCache $ \c ->
-          pure $ c { slotCache = Map.insert (addr, slot) val c.slotCache }
-      pure ret
+  case sess.forceEmpty of
+    True -> pure $ Just 0
+    False -> do
+      n <- getLatestBlockNum conf sess nPre url
+      cache <- readMVar sess.sharedCache
+      case Map.lookup (addr, slot) cache.slotCache of
+        Just s -> do
+          when (conf.debug) $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
+          pure $ Just s
+        Nothing -> do
+          when (conf.debug) $ putStrLn $ "-> Fetching slot " <> show slot <> " at " <> show addr
+          ret <- fetchSlotWithSession sess.sess n url addr slot
+          when (isJust ret) $ let val = fromJust ret in
+            modifyMVar_ sess.sharedCache $ \c ->
+              pure $ c { slotCache = Map.insert (addr, slot) val c.slotCache }
+          pure ret
 
 fetchSlotWithSession :: NetSession.Session -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
 fetchSlotWithSession sess n url addr slot =
@@ -446,7 +454,14 @@ mkSession cacheDir mblock = do
       _ -> pure emptyCache
   cache <- liftIO $ newMVar initialCache
   latestBlockNum <- liftIO $ newMVar Nothing
-  pure $ Session sess latestBlockNum cache cacheDir
+  pure $ Session sess latestBlockNum cache cacheDir False
+
+mkSessionEmpty :: App m => m Session
+mkSessionEmpty = do
+  sess <- liftIO NetSession.newAPISession
+  cache <- liftIO $ newMVar emptyCache
+  latestBlockNum <- liftIO $ newMVar Nothing
+  pure $ Session sess latestBlockNum cache Nothing True
 
 mkSessionWithoutCache :: App m => m Session
 mkSessionWithoutCache = mkSession Nothing Nothing

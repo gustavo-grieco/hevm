@@ -208,6 +208,7 @@ data EqOptions = EqOptions
   , codeB         ::Maybe ByteString
   , codeAFile     ::Maybe String
   , codeBFile     ::Maybe String
+  , rpcEmpty      ::Bool
   , sig           ::Maybe Text
   , arg           ::[String]
   , create        ::Bool
@@ -219,6 +220,7 @@ eqOptions = EqOptions
   <*> (optional $ strOption $ long "code-b"      <> help "Bytecode of the second program")
   <*> (optional $ strOption $ long "code-a-file" <> help "First program's bytecode in a file")
   <*> (optional $ strOption $ long "code-b-file" <> help "Second program's bytecode in a file")
+  <*> (switch   $ long "rpc-empty"               <> help "RPC: all accounts are empty (no code, zero balance, zero nonce, empty storage)")
   <*> sigParser
   <*> argParser
   <*> createParser
@@ -417,7 +419,13 @@ equivalence eqOpts cOpts = do
   cores <- liftIO $ unsafeInto <$> getNumProcessors
   let solverCount = fromMaybe cores cOpts.numSolvers
   withSolvers solver solverCount cOpts.solverThreads (Just cOpts.smttimeout) $ \s -> do
-    eq <- equivalenceCheck s (fromJust bytecodeA) (fromJust bytecodeB) veriOpts calldata eqOpts.create
+    sess <- if eqOpts.rpcEmpty then do
+              if (isJust cOpts.cacheDir) then liftIO $ do
+                putStrLn "Error: Cannot pass both --rpc-empty and --cache-dir"
+                exitFailure
+              else Fetch.mkSessionEmpty
+            else Fetch.mkSession cOpts.cacheDir Nothing
+    eq <- equivalenceCheck s (Just sess) (fromJust bytecodeA) (fromJust bytecodeB) veriOpts calldata eqOpts.create
     let anyIssues =  not (null eq.partials) || any (isUnknown . fst) eq.res  || any (isError . fst) eq.res
     liftIO $ case (any (isCex . fst) eq.res, anyIssues) of
       (False, False) -> putStrLn "   \x1b[32m[PASS]\x1b[0m Contracts behave equivalently"
