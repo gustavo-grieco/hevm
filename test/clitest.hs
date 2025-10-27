@@ -252,4 +252,4 @@ main = do
         let hexStr2 = "600180808069040000000000000000016940000000000000000001fa617fff1648617fff166a0400000000000000000001903e00fe"
         (_, stdout, _) <- readProcessWithExitCode "cabal" [
           "run", "exe:hevm", "--", "equivalence", "--code-a", hexStr1, "--code-b", hexStr2] ""
-        stdout `shouldContain` "RPC not configured, returning empty/zero for all calls"
+        stdout `shouldContain` "Warning: RPC info not provided"
