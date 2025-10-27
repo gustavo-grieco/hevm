@@ -81,9 +81,7 @@ runBCTest x =
   vm0 <- liftIO $ BCTests.vmForCase x
   result <- Stepper.interpret (Fetch.zero 0 Nothing) vm0 Stepper.runFully
   writeTrace vm0
-
-  maybeReason <- BCTests.checkExpectation x result
-  pure $ isNothing maybeReason
+  pure $ isNothing $ BCTests.checkExpectation x result
 
 
 --- Helpers ----------------------------------------------------------------------------------------
