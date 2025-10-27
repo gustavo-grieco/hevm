@@ -28,7 +28,7 @@ import Data.Map qualified as Map
 import Data.Maybe (fromJust, fromMaybe, isNothing, isJust)
 import Data.Word (Word64)
 import GHC.Generics (Generic)
-import System.Environment (lookupEnv, getEnv)
+import System.Environment (getEnv)
 import System.FilePath.Find qualified as Find
 import System.FilePath.Posix (makeRelative, (</>))
 import Witch (into, unsafeInto)
@@ -101,10 +101,8 @@ prepareTests = do
   let dir = repo </> testsDir
   jsonFiles <- liftIO $ Find.find Find.always (Find.extension Find.==? ".json") dir
   liftIO $ putStrLn $ "Loading and parsing json files from ethereum-tests from " <> show dir
-  isCI <- liftIO $ isJust <$> lookupEnv "CI"
-  let problematicTests = if isCI then commonProblematicTests <> ciProblematicTests else commonProblematicTests
   session <- EVM.Fetch.mkSessionWithoutCache
-  groups <- mapM (\f -> testGroup (makeRelative repo f) <$> (testsFromFile f problematicTests session)) jsonFiles
+  groups <- mapM (\f -> testGroup (makeRelative repo f) <$> (testsFromFile f commonProblematicTests session)) jsonFiles
   liftIO $ putStrLn "Loaded."
   pure $ testGroup "ethereum-tests" groups
 
@@ -169,24 +167,6 @@ commonProblematicTests = Map.fromList
   , ("failed_tx_xcf416c53_d0g0v0_Cancun", ignoreTestBecause "EIP-4844 not implemented")
   ]
 
-ciProblematicTests :: Map String (TestTree -> TestTree)
-ciProblematicTests = Map.fromList
-  [ ("Return50000_d0g1v0_Cancun", ignoreTest)
-  , ("Return50000_2_d0g1v0_Cancun", ignoreTest)
-  , ("randomStatetest177_d0g0v0_Cancun", ignoreTest)
-  , ("static_Call50000_d0g0v0_Cancun", ignoreTest)
-  , ("static_Call50000_d1g0v0_Cancun", ignoreTest)
-  , ("static_Call50000bytesContract50_1_d1g0v0_Cancun", ignoreTest)
-  , ("static_Call50000bytesContract50_2_d1g0v0_Cancun", ignoreTest)
-  , ("static_Return50000_2_d0g0v0_Cancun", ignoreTest)
-  , ("loopExp_d10g0v0_Cancun", ignoreTest)
-  , ("loopExp_d11g0v0_Cancun", ignoreTest)
-  , ("loopExp_d12g0v0_Cancun", ignoreTest)
-  , ("loopExp_d13g0v0_Cancun", ignoreTest)
-  , ("loopExp_d14g0v0_Cancun", ignoreTest)
-  , ("loopExp_d8g0v0_Cancun", ignoreTest)
-  , ("loopExp_d9g0v0_Cancun", ignoreTest)
-  ]
 
 runVMTest :: App m => EVM.Fetch.Fetcher Concrete m RealWorld -> Case -> m ()
 runVMTest fetcher x = do
