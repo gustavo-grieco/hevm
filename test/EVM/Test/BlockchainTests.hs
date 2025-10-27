@@ -1,4 +1,4 @@
-module EVM.Test.BlockchainTests (prepareTests, parseBCSuite, commonProblematicTests, Case(..), vmForCase, checkExpectation) where
+module EVM.Test.BlockchainTests (prepareTests, problematicTests, Case, vmForCase, checkExpectation, allTestCases) where
 
 import EVM (initialContract, makeVm, setEIP4788Storage)
 import EVM.Concrete qualified as EVM
@@ -96,41 +96,53 @@ data BlockchainCase = BlockchainCase
 
 prepareTests :: App m => m TestTree
 prepareTests = do
-  repo <- liftIO $ getEnv "HEVM_ETHEREUM_TESTS_REPO"
-  let testsDir = "BlockchainTests/GeneralStateTests"
-  let dir = repo </> testsDir
-  jsonFiles <- liftIO $ Find.find Find.always (Find.extension Find.==? ".json") dir
-  liftIO $ putStrLn $ "Loading and parsing json files from ethereum-tests from " <> show dir
+  rootDir <- liftIO rootDirectory
+  liftIO $ putStrLn $ "Loading and parsing json files from ethereum-tests from " <> show rootDir
+  cases <- liftIO allTestCases
   session <- EVM.Fetch.mkSessionWithoutCache
-  groups <- mapM (\f -> testGroup (makeRelative repo f) <$> (testsFromFile f commonProblematicTests session)) jsonFiles
+  groups <- forM (Map.toList cases) (\(f, subtests) -> testGroup (makeRelative rootDir f) <$> (process subtests session))
   liftIO $ putStrLn "Loaded."
   pure $ testGroup "ethereum-tests" groups
-
-testsFromFile
-  :: forall m . App m
-  => String -> Map String (TestTree -> TestTree) -> EVM.Fetch.Session -> m [TestTree]
-testsFromFile fname problematicTests session = do
-  fContents <- liftIO $ Lazy.readFile fname
-  let parsed = parseBCSuite fContents
-  liftIO $ putStrLn $ "Parsed " <> fname
-  case parsed of
-    Left "No cases to check." -> pure []
-    Left _err -> pure []
-    Right allTests -> mapM runTest $ Map.toList allTests
   where
-    fetcher q = withSolvers Z3 0 1 (Just 0) $ \s -> EVM.Fetch.oracle s (Just session) mempty q
-    runTest :: (String, Case) -> m TestTree
-    runTest (name, x) = do
+    process :: forall m . App m => (Map String Case) -> EVM.Fetch.Session -> m [TestTree]
+    process tests session = forM (Map.toList tests) $ runTest session
+
+    runTest :: App m => EVM.Fetch.Session -> (String, Case) -> m TestTree
+    runTest session (name, x) = do
+      let fetcher q = withSolvers Z3 0 1 (Just 0) $ \s -> EVM.Fetch.oracle s (Just session) mempty q
       exec <- toIO $ runVMTest fetcher x
       pure $ testCase' name exec
     testCase' :: String -> Assertion -> TestTree
     testCase' name assertion =
       case Map.lookup name problematicTests of
-        Just f -> f (testCase name (liftIO assertion))
-        Nothing -> testCase name (liftIO assertion)
+        Just f -> f (testCase name assertion)
+        Nothing -> testCase name assertion
 
-commonProblematicTests :: Map String (TestTree -> TestTree)
-commonProblematicTests = Map.fromList
+rootDirectory :: IO FilePath
+rootDirectory = do
+  repo <- getEnv "HEVM_ETHEREUM_TESTS_REPO"
+  let testsDir = "BlockchainTests/GeneralStateTests"
+  pure $ repo </> testsDir
+
+collectJsonFiles :: FilePath -> IO [FilePath]
+collectJsonFiles rootDir = Find.find Find.always (Find.extension Find.==? ".json") rootDir
+
+allTestCases :: IO (Map FilePath (Map String Case))
+allTestCases = do
+  root <- rootDirectory
+  jsons <- collectJsonFiles root
+  cases <- forM jsons (\fname -> do
+      fContents <- BS.readFile fname
+      let parsed = case (parseBCSuite (Lazy.fromStrict fContents)) of
+                    Left "No cases to check." -> mempty
+                    Left _err -> mempty -- TODO: This should be an error
+                    Right allTests -> allTests
+      pure (fname, parsed)
+    )
+  pure $ Map.fromList cases
+
+problematicTests :: Map String (TestTree -> TestTree)
+problematicTests = Map.fromList
   [ ("loopMul_d0g0v0_Cancun", ignoreTestBecause "hevm is too slow")
   , ("loopMul_d1g0v0_Cancun", ignoreTestBecause "hevm is too slow")
   , ("loopMul_d2g0v0_Cancun", ignoreTestBecause "hevm is too slow")
