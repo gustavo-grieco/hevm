@@ -1378,8 +1378,6 @@ simplifyProp prop =
     go (PNeg (POr a b)) = PAnd (PNeg a) (PNeg b)
     go (PNeg (PEq (Lit 1) (IsZero b))) = PEq (Lit 0) (IsZero b)
 
-    -- Empty buf
-    go (PEq (Lit 0) (BufLength k)) = peq k (ConcreteBuf "")
     go (PEq (Lit 0) (Or a b)) = peq (Lit 0) a `PAnd` peq (Lit 0) b
 
     -- PEq rewrites (notice -- GT/GEq is always rewritten to LT by simplify)

@@ -668,6 +668,13 @@ tests = testGroup "hevm"
         simp = Expr.simplifyProp expr
       ret <- checkEquivPropAndLHS expr simp
       assertEqualM "Must be equivalent" True ret
+    , test "buffer-length-zero" $ do
+        let
+          p = PEq (BufLength (AbstractBuf "b")) (Lit 0x0)
+          simp = Expr.simplifyProp p
+        liftIO $ print simp
+        ret <-  checkEquivProp p simp
+        assertEqualM "Must be equivalent" True ret
     ]
   -- These tests fuzz the simplifier by generating a random expression,
   -- applying some simplification rules, and then using the smt encoding to
