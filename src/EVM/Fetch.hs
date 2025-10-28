@@ -2,9 +2,6 @@
 module EVM.Fetch
   ( fetchContractWithSession
   , fetchBlockWithSession
-  , fetchSlotWithSession
-  , fetchSlotWithCache
-  , fetchWithSession
   , fetchQuery
   , oracle
   , Fetcher
@@ -324,22 +321,6 @@ makeContractFromRPC (RPCContract (ByteStringS code) nonce balance) =
       & set #balance  (Lit balance)
       & set #external True
 
-fetchSlotWithCache :: Config -> Session -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
-fetchSlotWithCache conf sess nPre url addr slot = do
-  n <- getLatestBlockNum conf sess nPre url
-  cache <- readMVar sess.sharedCache
-  case Map.lookup (addr, slot) cache.slotCache of
-    Just s -> do
-      when (conf.debug) $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
-      pure $ Just s
-    Nothing -> do
-      when (conf.debug) $ putStrLn $ "-> Fetching slot " <> show slot <> " at " <> show addr
-      ret <- fetchSlotWithSession sess.sess n url addr slot
-      when (isJust ret) $ let val = fromJust ret in
-        modifyMVar_ sess.sharedCache $ \c ->
-          pure $ c { slotCache = Map.insert (addr, slot) val c.slotCache }
-      pure ret
-
 fetchSlotWithSession :: NetSession.Session -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
 fetchSlotWithSession sess n url addr slot =
   fetchQuery n (fetchWithSession url sess) (QuerySlot addr slot)
@@ -475,7 +456,9 @@ oracle solvers preSess rpcInfo q = do
           when (conf.debug) $ liftIO $ putStrLn $ "Fetching contract at " ++ show addr
           when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching contract at address 0"
           contract <- case rpcInfo.blockNumURL of
-            Nothing -> pure $ Just $ nothingContract base addr
+            Nothing -> do
+              liftIO $ putStrLn $ "Warning: no RPC info provided, returning empty contract for address: " <> show addr
+              pure $ Just $ nothingContract base addr
             Just (block, url) -> liftIO $ fmap (fmap makeContractFromRPC) $ fetchContractWithSession conf sess block url addr
           case contract of
             Just x -> pure $ continue x
@@ -492,7 +475,9 @@ oracle solvers preSess rpcInfo q = do
           when (conf.debug) $ liftIO $ putStrLn $ "Fetching slot " <> (show slot) <> " at " <> (show addr)
           when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at address 0"
           case rpcInfo.blockNumURL of
-            Nothing -> pure $ continue 0
+            Nothing -> do 
+              liftIO $ putStrLn $ "Warning: no RPC info provided, returning 0 for slot at address: " <> show addr
+              pure $ continue 0
             Just (block, url) -> fetchSlotFrom sess block url addr slot >>= \case
                 Just x  -> pure $ continue x
                 Nothing -> internalError $ "oracle error: " ++ show q
