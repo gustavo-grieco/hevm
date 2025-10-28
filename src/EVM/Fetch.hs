@@ -18,6 +18,10 @@ module EVM.Fetch
   , saveCache
   , RPCContract (..)
   , makeContractFromRPC
+  -- Below 3 are needed for Echidna
+  , fetchSlotWithSession
+  , fetchSlotWithCache
+  , fetchWithSession
   ) where
 
 import Prelude hiding (Foldable(..))
@@ -320,6 +324,23 @@ makeContractFromRPC (RPCContract (ByteStringS code) nonce balance) =
       & set #nonce    (Just nonce)
       & set #balance  (Lit balance)
       & set #external True
+
+-- Needed for Echidna only
+fetchSlotWithCache :: Config -> Session -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
+fetchSlotWithCache conf sess nPre url addr slot = do
+  n <- getLatestBlockNum conf sess nPre url
+  cache <- readMVar sess.sharedCache
+  case Map.lookup (addr, slot) cache.slotCache of
+    Just s -> do
+      when (conf.debug) $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
+      pure $ Just s
+    Nothing -> do
+      when (conf.debug) $ putStrLn $ "-> Fetching slot " <> show slot <> " at " <> show addr
+      ret <- fetchSlotWithSession sess.sess n url addr slot
+      when (isJust ret) $ let val = fromJust ret in
+        modifyMVar_ sess.sharedCache $ \c ->
+          pure $ c { slotCache = Map.insert (addr, slot) val c.slotCache }
+      pure ret
 
 fetchSlotWithSession :: NetSession.Session -> BlockNumber -> Text -> Addr -> W256 -> IO (Maybe W256)
 fetchSlotWithSession sess n url addr slot =
