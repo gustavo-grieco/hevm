@@ -476,6 +476,7 @@ oracle solvers preSess rpcInfo q = do
         Nothing -> do
           when (conf.debug) $ liftIO $ putStrLn $ "Fetching contract at " ++ show addr
           when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching contract at address 0"
+          when (addr >= 1 && addr <= 17 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at precompiled address"
           contract <- case rpcInfo.blockNumURL of
             Nothing -> do
               liftIO $ putStrLn $ "Warning: no RPC info provided, returning empty contract for address: " <> show addr
@@ -495,6 +496,7 @@ oracle solvers preSess rpcInfo q = do
         Nothing -> do
           when (conf.debug) $ liftIO $ putStrLn $ "Fetching slot " <> (show slot) <> " at " <> (show addr)
           when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at address 0"
+          when (addr >= 1 && addr <= 17 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at precompiled address"
           case rpcInfo.blockNumURL of
             Nothing -> do
               liftIO $ putStrLn $ "Warning: no RPC info provided, returning 0 for slot at address: " <> show addr
