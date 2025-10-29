@@ -247,14 +247,48 @@ main = do
           , "--number", "10307563", "--cache-dir", "test/contracts/fail/"]
         stdout `shouldContain` "[FAIL]"
         stderr `shouldNotContain` "CallStack"
-      it "equiv-rpc-null" $ do
-        let hexStr1 = "617fff600180808069040000000000000000016940000000000000000001fa166a0400000000000000000001617fff48163e00fe"
-        let hexStr2 = "600180808069040000000000000000016940000000000000000001fa617fff1648617fff166a0400000000000000000001903e00fe"
-        (_, stdout, _) <- readProcessWithExitCode "cabal" [
-          "run", "exe:hevm", "--", "equivalence", "--code-a", hexStr1, "--code-b", hexStr2] ""
+      it "nowarn-rpc-empty-precompile-symbolic" $ do
+        Just c <- runApp $ solcRuntime (T.pack "C") (T.pack [i|
+          contract C {
+            function computeHash() public view {
+                bytes memory data = hex"68656c6c6f";
+                (bool success,) = address(2).staticcall(data); //SHA precompile
+                assert(success);
+            }
+          }
+         |])
+        (_, stdout, _) <- readProcessWithExitCode "cabal" ["run", "exe:hevm", "--", "symbolic", "--code", Types.bsToHex c] ""
+        stdout `shouldNotContain` "Warning: no RPC info provided"
+      it "warn-rpc-empty-unknown-addr-symbolic" $ do
+        Just c <- runApp $ solcRuntime (T.pack "C") (T.pack [i|
+          contract C {
+            function computeHash() public view {
+                bytes memory data = hex"68656c6c6f";
+                (bool success,) = address(878492734777777).staticcall(data);
+                assert(success);
+            }
+          }
+         |])
+        (_, stdout, _) <- readProcessWithExitCode "cabal" ["run", "exe:hevm", "--", "symbolic", "--code", Types.bsToHex c] ""
         stdout `shouldContain` "Warning: no RPC info provided"
-      it "rpc-null-norm" $ do
-        let hexStr1 = "617fff600180808069040000000000000000016940000000000000000001fa166a0400000000000000000001617fff48163e00fe"
-        (_, stdout, _) <- readProcessWithExitCode "cabal" [
-          "run", "exe:hevm", "--", "symbolic", "--code", hexStr1] ""
+      it "warn-rpc-empty-unknown-addr-equiv" $ do
+        Just c <- runApp $ solcRuntime (T.pack "C") (T.pack [i|
+          contract C {
+            function computeHash() public view {
+                bytes memory data = hex"68656c6c6f";
+                (bool success,) = address(8492734777777).staticcall(data);
+                assert(success);
+            }
+          }
+         |])
+        Just c2 <- runApp $ solcRuntime (T.pack "C") (T.pack [i|
+          contract C {
+            function computeHash() public view {
+                bytes memory data = hex"68656c6c6f";
+                (bool success,) = address(923741898892).staticcall(data);
+                assert(success);
+            }
+          }
+         |])
+        (_, stdout, _) <- readProcessWithExitCode "cabal" ["run", "exe:hevm", "--", "equivalence", "--code-a", Types.bsToHex c, "--code-b", Types.bsToHex c2] ""
         stdout `shouldContain` "Warning: no RPC info provided"
