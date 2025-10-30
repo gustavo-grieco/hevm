@@ -371,22 +371,6 @@ internalBlockFetch conf sess n url = do
         pure $ c { blockCache = Map.insert bn b c.blockCache }
       pure ret
 
-fetchSlotFrom :: App m => Session -> BlockNumber -> Text -> Addr -> W256 -> m (Maybe W256)
-fetchSlotFrom sess nPre url addr slot = do
-  conf <- readConfig
-  n <- liftIO $ getLatestBlockNum conf sess nPre url
-  cache <- liftIO $ readMVar sess.sharedCache
-  case Map.lookup (addr, slot) cache.slotCache of
-    Just s -> do
-      when (conf.debug) $ liftIO $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
-      pure $ Just s
-    Nothing -> do
-      ret <- liftIO $ fetchSlotWithSession sess.sess n url addr slot
-      when (isJust ret) $ let val = fromJust ret in
-        liftIO $ modifyMVar_ sess.sharedCache $ \c ->
-          pure $ c { slotCache = Map.insert (addr, slot) val c.slotCache }
-      pure ret
-
 cacheFileName :: W256 -> FilePath
 cacheFileName n = "rpc-cache-" ++ T.unpack (showDec Unsigned n) ++ ".json"
 
@@ -475,8 +459,6 @@ oracle solvers preSess rpcInfo q = do
           pure $ continue $ makeContractFromRPC c
         Nothing -> do
           when (conf.debug) $ liftIO $ putStrLn $ "Fetching contract at " ++ show addr
-          when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching contract at address 0"
-          when (addr >= 1 && addr <= 17 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at precompiled address"
           contract <- case rpcInfo.blockNumURL of
             Nothing -> do
               liftIO $ putStrLn $ "Warning: no RPC info provided, returning empty contract for address: " <> show addr
@@ -495,13 +477,17 @@ oracle solvers preSess rpcInfo q = do
           pure $ continue s
         Nothing -> do
           when (conf.debug) $ liftIO $ putStrLn $ "Fetching slot " <> (show slot) <> " at " <> (show addr)
-          when (addr == 0 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at address 0"
-          when (addr >= 1 && addr <= 17 && conf.verb > 0) $ liftIO $ putStrLn "Warning: fetching slot from a contract at precompiled address"
           case rpcInfo.blockNumURL of
             Nothing -> do
               liftIO $ putStrLn $ "Warning: no RPC info provided, returning 0 for slot at address: " <> show addr
               pure $ continue 0
-            Just (block, url) -> fetchSlotFrom sess block url addr slot >>= \case
+            Just (block, url) -> do
+              n <- liftIO $ getLatestBlockNum conf sess block url
+              ret <- liftIO $ fetchSlotWithSession sess.sess n url addr slot
+              when (isJust ret) $ let val = fromJust ret in
+                liftIO $ modifyMVar_ sess.sharedCache $ \c ->
+                  pure $ c { slotCache = Map.insert (addr, slot) val c.slotCache }
+              case ret of
                 Just x  -> pure $ continue x
                 Nothing -> internalError $ "oracle error: " ++ show q
 
