@@ -54,7 +54,7 @@ import Data.Text (Text, unpack, pack)
 import Data.Text qualified as T
 import Data.Foldable (Foldable(..))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, fromJust)
+import Data.Maybe (fromMaybe, isJust, fromJust, isNothing)
 import Data.Vector qualified as RegularVector
 import Network.Wreq
 import Network.Wreq.Session qualified as NetSession
@@ -450,63 +450,60 @@ oracle solvers preSess rpcInfo q = do
          let pathconds = foldl' PAnd (PBool True) pathconditions
          continue <$> getSolutions solvers symExpr numBytes pathconds
 
-    PleaseFetchContract addr base continue -> withSession addr (continue (nothingContract base addr)) $ \sess -> do
-      conf <- readConfig
-      cache <- liftIO $ readMVar sess.sharedCache
-      case Map.lookup addr cache.contractCache of
-        Just c -> do
-          when (conf.debug) $ liftIO $ putStrLn $ "-> Using cached contract at " ++ show addr
-          pure $ continue $ makeContractFromRPC c
-        Nothing -> do
-          when (conf.debug) $ liftIO $ putStrLn $ "Fetching contract at " ++ show addr
-          contract <- case rpcInfo.blockNumURL of
-            Nothing -> do
-              pure $ Just $ nothingContract base addr
-            Just (block, url) -> liftIO $ fmap (fmap makeContractFromRPC) $ fetchContractWithSession conf sess block url addr
-          case contract of
-            Just x -> pure $ continue x
-            Nothing -> internalError $ "oracle error: " ++ show q
+    PleaseFetchContract addr base continue
+      | isAddressSpecial addr -> pure $ continue nothingContract
+      | isNothing rpcInfo.blockNumURL -> pure $ continue nothingContract
+      | otherwise -> do
+        let sess = fromMaybe (internalError $ "oracle: no session provided for fetch addr: " ++ show addr) preSess
+        conf <- readConfig
+        cache <- liftIO $ readMVar sess.sharedCache
+        case Map.lookup addr cache.contractCache of
+          Just c -> do
+            when (conf.debug) $ liftIO $ putStrLn $ "-> Using cached contract at " ++ show addr
+            pure $ continue $ makeContractFromRPC c
+          Nothing -> do
+            when (conf.debug) $ liftIO $ putStrLn $ "Fetching contract at " ++ show addr
+            let (block, url) = fromJust rpcInfo.blockNumURL
+            contract <- liftIO $ fmap (fmap makeContractFromRPC) $ fetchContractWithSession conf sess block url addr
+            case contract of
+              Just x -> pure $ continue x
+              Nothing -> internalError $ "oracle error: " ++ show q
+      where
+        nothingContract = case base of
+          AbstractBase -> unknownContract (LitAddr addr)
+          EmptyBase -> emptyContract
 
-    PleaseFetchSlot addr slot continue -> withSession addr (continue 0)$ \sess -> do
-      conf <- readConfig
-      cache <- liftIO $ readMVar sess.sharedCache
-      case Map.lookup (addr, slot) cache.slotCache of
-        Just s -> do
-          when (conf.debug) $ liftIO $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
-          pure $ continue s
-        Nothing -> do
-          when (conf.debug) $ liftIO $ putStrLn $ "Fetching slot " <> (show slot) <> " at " <> (show addr)
-          case rpcInfo.blockNumURL of
-            Nothing -> do
-              pure $ continue 0
-            Just (block, url) -> do
-              n <- liftIO $ getLatestBlockNum conf sess block url
-              ret <- liftIO $ fetchSlotWithSession sess.sess n url addr slot
-              when (isJust ret) $ let val = fromJust ret in
-                liftIO $ modifyMVar_ sess.sharedCache $ \c ->
-                  pure $ c { slotCache = Map.insert (addr, slot) val c.slotCache }
-              case ret of
-                Just x  -> pure $ continue x
-                Nothing -> internalError $ "oracle error: " ++ show q
+    PleaseFetchSlot addr slot continue
+      | isAddressSpecial addr -> pure $ continue 0
+      | isNothing rpcInfo.blockNumURL -> pure $ continue 0
+      | otherwise -> do
+        let sess = fromMaybe (internalError $ "oracle: no session provided for fetch addr: " ++ show addr) preSess
+        conf <- readConfig
+        cache <- liftIO $ readMVar sess.sharedCache
+        case Map.lookup (addr, slot) cache.slotCache of
+          Just s -> do
+            when (conf.debug) $ liftIO $ putStrLn $ "-> Using cached slot value for slot " <> show slot <> " at " <> show addr
+            pure $ continue s
+          Nothing -> do
+            when (conf.debug) $ liftIO $ putStrLn $ "Fetching slot " <> (show slot) <> " at " <> (show addr)
+            let (block, url) = fromJust rpcInfo.blockNumURL
+            n <- liftIO $ getLatestBlockNum conf sess block url
+            ret <- liftIO $ fetchSlotWithSession sess.sess n url addr slot
+            when (isJust ret) $ let val = fromJust ret in
+              liftIO $ modifyMVar_ sess.sharedCache $ \c ->
+                pure $ c { slotCache = Map.insert (addr, slot) val c.slotCache }
+            case ret of
+              Just x  -> pure $ continue x
+              Nothing -> internalError $ "oracle error: " ++ show q
 
     PleaseReadEnv variable continue -> do
       value <- liftIO $ lookupEnv variable
       pure . continue $ fromMaybe "" value
 
     where
-      nothingContract base addr =
-        case base of
-          AbstractBase -> unknownContract (LitAddr addr)
-          EmptyBase -> emptyContract
-      withSession addr def f =
-        case addr of
-          -- special values such as 0, 0xdeadbeef, 0xacab, hevm cheatcodes, and the precompile addresses
-          -- do not require a session, there is nothing deployed there, it's way too small or special, RPC would be pointless
-          a | a <= 0xdeadbeef -> pure def
-          0x7109709ECfa91a80626fF3989D68f67F5b1DD12D -> pure def
-          _ -> case preSess of
-            Just sess  -> f sess
-            Nothing -> internalError $ "oracle: no session provided for fetch addr: " ++ show addr
+      -- special values such as 0, 0xdeadbeef, 0xacab, hevm cheatcodes, and the precompile addresses
+      isAddressSpecial addr = addr <= 0xdeadbeef || addr == 0x7109709ECfa91a80626fF3989D68f67F5b1DD12D  
+      
 
 getSolutions :: forall m . App m => SolverGroup -> Expr EWord -> Int -> Prop -> m (Maybe [W256])
 getSolutions solvers symExprPreSimp numBytes pathconditions = do
