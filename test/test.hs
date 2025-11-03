@@ -1891,7 +1891,7 @@ tests = testGroup "hevm"
           let calldata = (WriteWord (Lit 0x0) (Var "u") (ConcreteBuf ""), [])
           initVM <- liftIO $ stToIO $ abstractVM calldata initCode Nothing True
           let iterConf = IterConfig {maxIter=Nothing, askSmtIters=1, loopHeuristic=StackBased }
-          expr <- Expr.simplify <$> interpret (Fetch.oracle s Nothing mempty) iterConf initVM runExpr
+          expr <- Expr.simplify <$> interpret (Fetch.noRpcFetcher s) iterConf initVM runExpr
           assertBoolM "unexptected partial execution" (not $ Expr.containsNode isPartial expr)
     , test "mixed-concrete-symbolic-args" $ do
         Just c <- solcRuntime "C"
@@ -1982,7 +1982,7 @@ tests = testGroup "hevm"
         withDefaultSolver $ \s -> do
           vm <- liftIO $ stToIO $ loadSymVM runtimecode (Lit 0) initCode False
           let iterConf = IterConfig {maxIter=Nothing, askSmtIters=1, loopHeuristic=StackBased }
-          expr <- Expr.simplify <$> interpret (Fetch.oracle s Nothing mempty) iterConf vm runExpr
+          expr <- Expr.simplify <$> interpret (Fetch.noRpcFetcher s) iterConf vm runExpr
           case expr of
             Partial _ _ (JumpIntoSymbolicCode _ _ _) -> assertBoolM "" True
             _ -> assertBoolM "did not encounter expected partial node" False
@@ -2022,7 +2022,7 @@ tests = testGroup "hevm"
               , ("test/contracts/fail/symbolicFail.sol",      "prove_symb_fail_allrev_selector.*", (False, False))
               , ("test/contracts/fail/symbolicFail.sol",      "prove_symb_fail_somerev_selector.*", (False, True))]
         forM_ cases $ \(testFile, match, expected) -> do
-          actual <- runForgeTestCustom testFile match Nothing Nothing False mempty
+          actual <- runForgeTestCustom testFile match Nothing Nothing False Fetch.noRpc
           putStrLnM $ "Test result for " <> testFile <> " match: " <> T.unpack match <> ": " <> show actual
           assertEqualM "Must match" expected actual
     , test "Trivial-Fail" $ do
@@ -2055,14 +2055,14 @@ tests = testGroup "hevm"
         runForgeTest testFile "prove_trivial" >>= assertEqualM "prove_trivial" (False, False)
         runForgeTest testFile "prove_trivial_dstest" >>= assertEqualM "prove_trivial_dstest" (False, False)
         runForgeTest testFile "prove_add" >>= assertEqualM "prove_add" (False, True)
-        runForgeTestCustom testFile "prove_smtTimeout" (Just 1) Nothing False mempty
+        runForgeTestCustom testFile "prove_smtTimeout" (Just 1) Nothing False Fetch.noRpc
           >>= assertEqualM "prove_smtTimeout" (True, False)
         runForgeTest testFile "prove_multi" >>= assertEqualM "prove_multi" (False, True)
         runForgeTest testFile "prove_distributivity" >>= assertEqualM "prove_distributivity" (False, True)
     , test "Loop-Tests" $ do
         let testFile = "test/contracts/pass/loops.sol"
-        runForgeTestCustom testFile "prove_loop" Nothing (Just 10) False mempty  >>= assertEqualM "test result" (True, False)
-        runForgeTestCustom testFile "prove_loop" Nothing (Just 100) False mempty >>= assertEqualM "test result" (False, False)
+        runForgeTestCustom testFile "prove_loop" Nothing (Just 10) False Fetch.noRpc  >>= assertEqualM "test result" (True, False)
+        runForgeTestCustom testFile "prove_loop" Nothing (Just 100) False Fetch.noRpc >>= assertEqualM "test result" (False, False)
     , test "Cheat-Codes-Pass" $ do
         let testFile = "test/contracts/pass/cheatCodes.sol"
         runForgeTest testFile ".*" >>= assertEqualM "test result" (True, False)
@@ -4218,7 +4218,7 @@ tests = testGroup "hevm"
                     <&> set (#state % #callvalue) (Lit 0)
                     <&> over (#env % #contracts)
                        (Map.insert aAddr (initialContract (RuntimeCode (ConcreteRuntimeCode a))))
-            verify s (Fetch.oracle s Nothing mempty) defaultVeriOpts vm (checkAssertions defaultPanicCodes)
+            verify s (Fetch.noRpcFetcher s) defaultVeriOpts vm (checkAssertions defaultPanicCodes)
 
           let storeCex = cex.store
               testCex = case (Map.lookup cAddr storeCex, Map.lookup aAddr storeCex) of
@@ -4294,7 +4294,7 @@ tests = testGroup "hevm"
           let yulsafeDistributivity = hex "6355a79a6260003560e01c14156016576015601f565b5b60006000fd60a1565b603d602d604435600435607c565b6039602435600435607c565b605d565b6052604b604435602435605d565b600435607c565b141515605a57fe5b5b565b6000828201821115151560705760006000fd5b82820190505b92915050565b6000818384048302146000841417151560955760006000fd5b82820290505b92915050565b"
           calldata <- mkCalldata (Just (Sig "distributivity(uint256,uint256,uint256)" [AbiUIntType 256, AbiUIntType 256, AbiUIntType 256])) []
           vm <- liftIO $ stToIO $ abstractVM calldata yulsafeDistributivity Nothing False
-          (_, [Qed]) <-  withDefaultSolver $ \s -> verify s (Fetch.oracle s Nothing mempty) defaultVeriOpts vm (checkAssertions defaultPanicCodes)
+          (_, [Qed]) <-  withDefaultSolver $ \s -> verify s (Fetch.noRpcFetcher s) defaultVeriOpts vm (checkAssertions defaultPanicCodes)
           putStrLnM "Proven"
         ,
         test "safemath-distributivity-sol" $ do

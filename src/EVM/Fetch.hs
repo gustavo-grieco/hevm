@@ -8,8 +8,9 @@ module EVM.Fetch
   , RpcInfo (..)
   , RpcQuery (..)
   , EVM.Fetch.zero
+  , noRpc
+  , noRpcFetcher
   , BlockNumber (..)
-  , mkRpcInfo
   , mkSession
   , mkSessionWithoutCache
   , Session (..)
@@ -46,7 +47,6 @@ import Data.Bifunctor (first)
 import Control.Exception (try, SomeException)
 
 import Control.Monad.Trans.Maybe
-import Control.Applicative (Alternative(..))
 import Data.Aeson hiding (Error)
 import Data.Aeson.Optics
 import Data.ByteString qualified as BS
@@ -137,18 +137,11 @@ instance ToJSON RPCContract
 
 instance FromJSON RPCContract
 
-data RpcInfo = RpcInfo
-  { blockNumURL  :: Maybe (BlockNumber, Text) -- ^ (block number, RPC url)
-  }
+newtype RpcInfo = RpcInfo { blockNumURL  :: Maybe (BlockNumber, Text)} -- ^ (block number, RPC url)
   deriving (Show)
-instance Semigroup RpcInfo where
-  RpcInfo a1 <> RpcInfo b1 =
-    RpcInfo (a1 <|> b1)
-instance Monoid RpcInfo where
-  mempty = RpcInfo Nothing
 
-mkRpcInfo :: Maybe (BlockNumber, Text) -> RpcInfo
-mkRpcInfo blockNumURL = RpcInfo blockNumURL
+noRpc :: RpcInfo
+noRpc = RpcInfo Nothing
 
 rpc :: String -> [Value] -> Value
 rpc method args = object
@@ -422,7 +415,10 @@ zero :: Natural -> Maybe Natural -> Fetcher t m
 zero smtjobs smttimeout q = do
   sess <- mkSessionWithoutCache
   withSolvers Z3 smtjobs 1 smttimeout $ \s ->
-    oracle s (Just sess) mempty q
+    oracle s (Just sess) noRpc q
+
+noRpcFetcher :: forall t m . App m => SolverGroup -> Fetcher t m
+noRpcFetcher sg = oracle sg Nothing noRpc
 
 -- SMT solving + RPC data fetching + reading from environment
 oracle :: forall t m . App m => SolverGroup -> Maybe Session -> RpcInfo -> Fetcher t m

@@ -109,7 +109,7 @@ prepareTests = do
 
     runTest :: App m => EVM.Fetch.Session -> (String, Case) -> m TestTree
     runTest session (name, x) = do
-      let fetcher q = withSolvers Z3 0 1 (Just 0) $ \s -> EVM.Fetch.oracle s (Just session) mempty q
+      let fetcher q = withSolvers Z3 0 1 (Just 0) $ \s -> EVM.Fetch.oracle s (Just session) EVM.Fetch.noRpc q
       exec <- toIO $ runVMTest fetcher x
       pure $ testCase' name exec
     testCase' :: String -> Assertion -> TestTree
