@@ -461,7 +461,6 @@ oracle solvers preSess rpcInfo q = do
           when (conf.debug) $ liftIO $ putStrLn $ "Fetching contract at " ++ show addr
           contract <- case rpcInfo.blockNumURL of
             Nothing -> do
-              liftIO $ putStrLn $ "Warning: no RPC info provided, returning empty contract for address: " <> show addr
               pure $ Just $ nothingContract base addr
             Just (block, url) -> liftIO $ fmap (fmap makeContractFromRPC) $ fetchContractWithSession conf sess block url addr
           case contract of
@@ -479,7 +478,6 @@ oracle solvers preSess rpcInfo q = do
           when (conf.debug) $ liftIO $ putStrLn $ "Fetching slot " <> (show slot) <> " at " <> (show addr)
           case rpcInfo.blockNumURL of
             Nothing -> do
-              liftIO $ putStrLn $ "Warning: no RPC info provided, returning 0 for slot at address: " <> show addr
               pure $ continue 0
             Just (block, url) -> do
               n <- liftIO $ getLatestBlockNum conf sess block url
