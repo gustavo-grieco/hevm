@@ -15,7 +15,7 @@ import EVM.UnitTest (writeTrace)
 import Optics.Core
 import Control.Arrow ((***), (&&&))
 import Control.Monad
-import Control.Monad.ST (RealWorld, stToIO)
+import Control.Monad.ST (stToIO)
 import Control.Monad.State.Strict
 import Control.Monad.IO.Unlift
 import Data.Aeson ((.:), (.:?), FromJSON (..))
@@ -180,7 +180,7 @@ problematicTests = Map.fromList
   ]
 
 
-runVMTest :: App m => EVM.Fetch.Fetcher Concrete m RealWorld -> Case -> m ()
+runVMTest :: App m => EVM.Fetch.Fetcher Concrete m -> Case -> m ()
 runVMTest fetcher x = do
   -- traceVsGeth fname name x
   vm0 <- liftIO $ vmForCase x
@@ -189,11 +189,11 @@ runVMTest fetcher x = do
   let maybeReason = checkExpectation x result
   liftIO $ forM_ maybeReason (liftIO >=> assertFailure)
 
-checkExpectation :: Case -> VM Concrete RealWorld -> Maybe (IO String)
+checkExpectation :: Case -> VM Concrete -> Maybe (IO String)
 checkExpectation x vm = let (okState, okBal, okNonce, okStor, okCode) = checkExpectedContracts vm x.testExpectation in
   if okState then Nothing else Just $ checkStateFail x (okBal, okNonce, okStor, okCode)
   where
-    checkExpectedContracts :: VM Concrete RealWorld -> BlockchainContracts -> (Bool, Bool, Bool, Bool, Bool)
+    checkExpectedContracts :: VM Concrete -> BlockchainContracts -> (Bool, Bool, Bool, Bool, Bool)
     checkExpectedContracts vm' expected =
       let cs = fmap (asBCContract . clearZeroStorage) $ forceConcreteAddrs vm'.env.contracts
       in ( (expected ~= cs)
@@ -455,7 +455,7 @@ validateTx tx block cs = do
   then Just ()
   else Nothing
 
-vmForCase :: Case -> IO (VM Concrete RealWorld)
+vmForCase :: Case -> IO (VM Concrete)
 vmForCase x = do
   vm <- stToIO $ makeVm x.vmOpts
     -- TODO: why do we override contracts here instead of using VMOpts otherContracts?

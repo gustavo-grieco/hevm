@@ -10,7 +10,7 @@ import Prelude hiding (LT, GT)
 import GHC.TypeLits
 import Data.Proxy
 import Control.Monad
-import Control.Monad.ST (RealWorld, stToIO)
+import Control.Monad.ST (stToIO)
 import Control.Monad.State.Strict
 import Control.Monad.IO.Unlift
 import Control.Monad.Reader (ReaderT)
@@ -520,7 +520,7 @@ tests = testGroup "hevm"
         let dummyContract =
               (initialContract (RuntimeCode (ConcreteRuntimeCode mempty)))
                 { external = True }
-        vm :: VM Concrete RealWorld <- liftIO $ stToIO $ vmForEthrunCreation ""
+        vm :: VM Concrete <- liftIO $ stToIO $ vmForEthrunCreation ""
         -- perform the initial access
         let ?conf = testEnv.config
         vm1 <- liftIO $ stToIO $ execStateT (EVM.accessStorage (LitAddr 0) (Lit 0) (pure . pure ())) vm
@@ -5620,7 +5620,7 @@ runSimpleVM x ins = do
        s -> internalError $ show s
 
 -- | Takes a creation code and returns a vm with the result of executing the creation code
-loadVM :: App m => ByteString -> m (Maybe (VM Concrete RealWorld))
+loadVM :: App m => ByteString -> m (Maybe (VM Concrete))
 loadVM x = do
   vm <- liftIO $ stToIO $ vmForEthrunCreation x
   vm1 <- Stepper.interpret (Fetch.zero 0 Nothing) vm Stepper.runFully
@@ -5686,7 +5686,7 @@ runStatements stmts args t = do
     }
   |] (abiMethod s (AbiTuple $ V.fromList args))
 
-getStaticAbiArgs :: Int -> VM Symbolic s -> [Expr EWord]
+getStaticAbiArgs :: Int -> VM Symbolic -> [Expr EWord]
 getStaticAbiArgs n vm =
   let cd = vm.state.calldata
   in decodeStaticArgs 4 n cd
@@ -6338,7 +6338,7 @@ bothM f (a, a') = do
 applyPattern :: String -> TestTree  -> TestTree
 applyPattern p = localOption (TestPattern (parseExpr p))
 
-checkBadCheatCode :: Text -> Postcondition s
+checkBadCheatCode :: Text -> Postcondition
 checkBadCheatCode sig _ = \case
   (Failure _ c (Revert _)) -> case mapMaybe findBadCheatCode (concatMap flatten c.traces) of
     (s:_) -> (ConcreteBuf $ into s.unFunctionSelector) ./= (ConcreteBuf $ selector sig)
@@ -6360,7 +6360,7 @@ allBranchesFail = checkPost p
 reachableUserAsserts :: App m => ByteString -> Maybe Sig -> m (Either [SMTCex] (Expr End))
 reachableUserAsserts = checkPost (checkAssertions [0x01])
 
-checkPost :: App m => Postcondition RealWorld -> ByteString -> Maybe Sig -> m (Either [SMTCex] (Expr End))
+checkPost :: App m => Postcondition -> ByteString -> Maybe Sig -> m (Either [SMTCex] (Expr End))
 checkPost post c sig = do
   (e, res) <- withDefaultSolver $ \s ->
     verifyContract s c sig [] defaultVeriOpts Nothing post

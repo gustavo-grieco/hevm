@@ -19,7 +19,7 @@ import EVM.Stepper qualified as Stepper
 import EVM.SymExec
 import EVM.Test.Utils
 import EVM.Types hiding (BlockNumber, Env)
-import Control.Monad.ST (stToIO, RealWorld)
+import Control.Monad.ST (stToIO)
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.IO.Unlift
 import EVM.Effects
@@ -122,7 +122,7 @@ tests = testGroup "rpc"
   ]
 
 -- call into WETH9 from 0xf04a... (a large holder)
-weth9VM :: App m => Session -> W256 -> (Expr Buf, [Prop]) -> m (VM Concrete RealWorld)
+weth9VM :: App m => Session -> W256 -> (Expr Buf, [Prop]) -> m (VM Concrete)
 weth9VM sess blockNum calldata' = do
   let
     caller' = LitAddr 0xf04a5cc80b1e94c69b48f5ee68a08cd2f09a7c3e
@@ -130,7 +130,7 @@ weth9VM sess blockNum calldata' = do
     callvalue' = Lit 0
   vmFromRpc sess blockNum calldata' callvalue' caller' weth9
 
-vmFromRpc :: App m => Session -> W256 -> (Expr Buf, [Prop]) -> Expr EWord -> Expr EAddr -> Addr -> m (VM Concrete RealWorld)
+vmFromRpc :: App m => Session -> W256 -> (Expr Buf, [Prop]) -> Expr EWord -> Expr EAddr -> Addr -> m (VM Concrete)
 vmFromRpc sess blockNum calldata callvalue caller address = do
   conf <- readConfig
   ctrct <- liftIO $ fetchContractWithSession conf sess (BlockNumber blockNum) testRpc address >>= \case

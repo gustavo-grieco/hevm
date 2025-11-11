@@ -17,7 +17,6 @@ import EVM.Solidity
 import EVM.Solvers
 import EVM.UnitTest
 import EVM.SymExec qualified as SymExec
-import Control.Monad.ST (RealWorld)
 import Control.Monad.IO.Unlift
 import Control.Monad.Catch (MonadMask)
 import EVM.Effects
@@ -49,7 +48,7 @@ runForgeTest
   => FilePath -> Text -> m (Bool, Bool)
 runForgeTest testFile match = runForgeTestCustom testFile match Nothing Nothing True mempty
 
-testOpts :: forall m . App m => SolverGroup -> FilePath -> Maybe BuildOutput -> Text -> Maybe Integer -> Bool -> RpcInfo -> m (UnitTestOptions RealWorld)
+testOpts :: forall m . App m => SolverGroup -> FilePath -> Maybe BuildOutput -> Text -> Maybe Integer -> Bool -> RpcInfo -> m (UnitTestOptions)
 testOpts solvers root buildOutput match maxIter allowFFI rpcinfo = do
   let srcInfo = maybe emptyDapp (dappInfo root) buildOutput
   sess <- Fetch.mkSessionWithoutCache

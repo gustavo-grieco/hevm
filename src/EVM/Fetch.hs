@@ -67,7 +67,7 @@ import EVM.Effects
 import qualified EVM.Expr as Expr
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, modifyMVar_)
 
-type Fetcher t m s = App m => Query t s -> m (EVM t s ())
+type Fetcher t m = App m => Query t -> m (EVM t ())
 
 data Session = Session
   { sess           :: NetSession.Session
@@ -418,14 +418,14 @@ mkSessionWithoutCache :: App m => m Session
 mkSessionWithoutCache = mkSession Nothing Nothing
 
 -- Only used for testing (test.hs, BlockchainTests.hs)
-zero :: Natural -> Maybe Natural -> Fetcher t m s
+zero :: Natural -> Maybe Natural -> Fetcher t m
 zero smtjobs smttimeout q = do
   sess <- mkSessionWithoutCache
   withSolvers Z3 smtjobs 1 smttimeout $ \s ->
     oracle s (Just sess) mempty q
 
 -- SMT solving + RPC data fetching + reading from environment
-oracle :: forall t m s . App m => SolverGroup -> Maybe Session -> RpcInfo -> Fetcher t m s
+oracle :: forall t m . App m => SolverGroup -> Maybe Session -> RpcInfo -> Fetcher t m
 oracle solvers preSess rpcInfo q = do
   case q of
     PleaseDoFFI vals envs continue -> case vals of

@@ -13,7 +13,7 @@ concretely through Expr.simplify, then check that against evmtool's output.
 module EVM.Test.FuzzSymExec where
 
 import Control.Monad (when)
-import Control.Monad.ST (ST, stToIO)
+import Control.Monad.ST (ST, stToIO, RealWorld)
 import Control.Monad.State.Strict (StateT(..))
 import Control.Monad.Reader (ReaderT)
 import Data.Aeson ((.:), (.:?))
@@ -417,7 +417,7 @@ runCodeWithTrace rpcinfo evmEnv alloc txn fromAddr toAddress = withSolvers Z3 0 
     Left x -> pure $ Left (x, trace)
     Right _ -> pure $ Right (expr, trace, vmres vm)
 
-vmForRuntimeCode :: ByteString -> Expr Buf -> EVMToolEnv -> EVMToolAlloc -> EVM.Transaction.Transaction -> Expr EAddr -> Expr EAddr -> ST s (VM Concrete s)
+vmForRuntimeCode :: ByteString -> Expr Buf -> EVMToolEnv -> EVMToolAlloc -> EVM.Transaction.Transaction -> Expr EAddr -> Expr EAddr -> ST RealWorld (VM Concrete)
 vmForRuntimeCode runtimecode calldata' evmToolEnv alloc txn fromAddr toAddress =
   let contract = initialContract (RuntimeCode (ConcreteRuntimeCode runtimecode))
                  & set #balance (Lit alloc.balance)
@@ -452,7 +452,7 @@ vmForRuntimeCode runtimecode calldata' evmToolEnv alloc txn fromAddr toAddress =
              (Just (initialContract (RuntimeCode (ConcreteRuntimeCode BS.empty))))
        <&> set (#state % #calldata) calldata'
 
-vmres :: VM Concrete s -> VMTraceStepResult
+vmres :: VM Concrete -> VMTraceStepResult
 vmres vm =
   let
     gasUsed' = vm.tx.gaslimit - vm.state.gas
@@ -682,7 +682,7 @@ genContract n = do
 randItem :: [a] -> IO a
 randItem = generate . Test.QuickCheck.elements
 
-getOpFromVM :: VM t s -> Word8
+getOpFromVM :: VM t -> Word8
 getOpFromVM vm =
   let pcpos  = vm ^. #state % #pc
       code' = vm ^. #state % #code
