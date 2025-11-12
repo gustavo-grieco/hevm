@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced RPC mocking by a full block cache support. This allows users to cache responses from an RPC
   node via `--cache-dir dir`.
 - Changed `verify*` methods to always require postcodition.
+- Removed type parameter of mutable memory from VM definition.
 
 ## [0.56.0] - 2025-10-13
 

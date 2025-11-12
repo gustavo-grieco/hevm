@@ -9,7 +9,7 @@ module Main where
 
 import Control.Monad (when, forM_, unless)
 import Control.Monad.State.Strict (runStateT)
-import Control.Monad.ST (RealWorld, stToIO)
+import Control.Monad.ST (stToIO)
 import Control.Monad.IO.Unlift
 import Control.Exception (try, IOException)
 import Data.ByteString (ByteString)
@@ -619,7 +619,7 @@ launchExec cFileOpts execOpts cExecOpts cOpts = do
         internalError "no EVM result"
 
 -- | Creates a (concrete) VM from command line options
-vmFromCommand :: App m => CommonOptions -> CommonExecOptions -> CommonFileOptions -> ExecOptions -> Fetch.Session -> m (VM Concrete RealWorld)
+vmFromCommand :: App m => CommonOptions -> CommonExecOptions -> CommonFileOptions -> ExecOptions -> Fetch.Session -> m (VM Concrete)
 vmFromCommand cOpts cExecOpts cFileOpts execOpts sess = do
   conf <- readConfig
   (miner,ts,baseFee,blockNum,prevRan) <- case cExecOpts.rpc of
@@ -732,7 +732,7 @@ vmFromCommand cOpts cExecOpts cFileOpts execOpts sess = do
 
 symvmFromCommand :: App m =>
   CommonExecOptions -> SymbolicOptions -> CommonFileOptions -> Fetch.Session ->
-  (Expr Buf, [Prop]) -> m (VM EVM.Types.Symbolic RealWorld)
+  (Expr Buf, [Prop]) -> m (VM EVM.Types.Symbolic)
 symvmFromCommand cExecOpts sOpts cFileOpts sess calldata = do
   conf <- readConfig
   (miner,blockNum,baseFee,prevRan) <- case cExecOpts.rpc of
@@ -832,7 +832,7 @@ symvmFromCommand cExecOpts sOpts cFileOpts sess calldata = do
     word64 f def = fromMaybe def (f cExecOpts)
     eaddr f def = maybe def LitAddr (f cExecOpts)
 
-unitTestOptions :: App m => TestOptions -> CommonOptions -> SolverGroup -> Maybe BuildOutput -> m (UnitTestOptions RealWorld)
+unitTestOptions :: App m => TestOptions -> CommonOptions -> SolverGroup -> Maybe BuildOutput -> m (UnitTestOptions)
 unitTestOptions testOpts cOpts solvers buildOutput = do
   root <- liftIO $ getRoot cOpts
 
