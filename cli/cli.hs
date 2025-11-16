@@ -25,6 +25,7 @@ import Data.Text.IO qualified as T
 import Data.Version (showVersion)
 import Data.Word (Word64)
 import GHC.Conc (getNumProcessors)
+import GitHash
 import Numeric.Natural (Natural)
 import Optics.Core ((&), set)
 import Witch (unsafeInto)
@@ -43,7 +44,6 @@ import EVM.ABI (Sig(..))
 import EVM.Dapp (dappInfo, DappInfo, emptyDapp)
 import EVM.Expr qualified as Expr
 import EVM.Concrete qualified as Concrete
-import GitHash
 import EVM.FeeSchedule (feeSchedule)
 import EVM.Fetch qualified as Fetch
 import EVM.Format (hexByteString, strip0x, formatExpr)
@@ -405,12 +405,11 @@ equivalence eqOpts cOpts = do
   when (isNothing bytecodeB) $ liftIO $ do
     putStrLn "Error: invalid or no bytecode for program B. Provide a valid one with --code-b or --code-b-file"
     exitFailure
-  let veriOpts = VeriOpts { iterConf = IterConfig {
+  let veriOpts = defaultVeriOpts { iterConf = IterConfig {
                             maxIter = parseMaxIters cOpts.maxIterations
                             , askSmtIters = cOpts.askSmtIterations
                             , loopHeuristic = cOpts.loopDetectionHeuristic
                             }
-                          , rpcInfo = mempty
                           }
   calldata <- buildCalldata cOpts eqOpts.sig eqOpts.arg
   solver <- liftIO $ getSolver cOpts.solver
@@ -520,7 +519,7 @@ symbCheck cFileOpts sOpts cExecOpts cOpts = do
                               , askSmtIters = cOpts.askSmtIterations
                               , loopHeuristic = cOpts.loopDetectionHeuristic
                               }
-                            , rpcInfo = mempty {Fetch.blockNumURL = blockUrlInfo}
+                            , rpcInfo = Fetch.RpcInfo blockUrlInfo
                             }
     let fetcher = Fetch.oracle solvers (Just sess) veriOpts.rpcInfo
     (expr, res) <- verify solvers fetcher veriOpts preState (checkAssertions errCodes)
@@ -576,7 +575,7 @@ launchExec cFileOpts execOpts cExecOpts cOpts = do
   let
     block = maybe Fetch.Latest Fetch.BlockNumber cExecOpts.block
     blockUrlInfo = (,) block <$> cExecOpts.rpc
-    rpcDat :: Fetch.RpcInfo = mempty { Fetch.blockNumURL = blockUrlInfo }
+    rpcDat :: Fetch.RpcInfo = Fetch.RpcInfo blockUrlInfo
 
   -- TODO: we shouldn't need solvers to execute this code
   withSolvers Z3 0 1 Nothing $ \solvers -> do
@@ -841,7 +840,7 @@ unitTestOptions testOpts cOpts solvers buildOutput = do
           (Just block, Just url) -> Just (Fetch.BlockNumber block, url)
           (Nothing, Just url) -> Just (Fetch.Latest, url)
           _ -> Nothing
-      rpcDat = Fetch.mkRpcInfo blockUrlInfo
+      rpcDat = Fetch.RpcInfo blockUrlInfo
   sess <- Fetch.mkSession cOpts.cacheDir testOpts.number
   params <- paramsFromRpc rpcDat sess
   let testn = params.number

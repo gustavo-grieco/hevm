@@ -99,17 +99,16 @@ prepareTests = do
   rootDir <- liftIO rootDirectory
   liftIO $ putStrLn $ "Loading and parsing json files from ethereum-tests from " <> show rootDir
   cases <- liftIO allTestCases
-  session <- EVM.Fetch.mkSessionWithoutCache
-  groups <- forM (Map.toList cases) (\(f, subtests) -> testGroup (makeRelative rootDir f) <$> (process subtests session))
+  groups <- forM (Map.toList cases) (\(f, subtests) -> testGroup (makeRelative rootDir f) <$> (process subtests))
   liftIO $ putStrLn "Loaded."
   pure $ testGroup "ethereum-tests" groups
   where
-    process :: forall m . App m => (Map String Case) -> EVM.Fetch.Session -> m [TestTree]
-    process tests session = forM (Map.toList tests) $ runTest session
+    process :: forall m . App m => (Map String Case) -> m [TestTree]
+    process tests = forM (Map.toList tests) runTest
 
-    runTest :: App m => EVM.Fetch.Session -> (String, Case) -> m TestTree
-    runTest session (name, x) = do
-      let fetcher q = withSolvers Z3 0 1 (Just 0) $ \s -> EVM.Fetch.oracle s (Just session) mempty q
+    runTest :: App m => (String, Case) -> m TestTree
+    runTest (name, x) = do
+      let fetcher q = withSolvers Z3 0 1 (Just 0) $ \s -> EVM.Fetch.noRpcFetcher s q
       exec <- toIO $ runVMTest fetcher x
       pure $ testCase' name exec
     testCase' :: String -> Assertion -> TestTree

@@ -105,11 +105,8 @@ data VeriOpts = VeriOpts
 defaultVeriOpts :: VeriOpts
 defaultVeriOpts = VeriOpts
   { iterConf = defaultIterConf
-  , rpcInfo = mempty
+  , rpcInfo = Fetch.noRpc
   }
-
-rpcVeriOpts :: (Fetch.BlockNumber, Text) -> VeriOpts
-rpcVeriOpts info = defaultVeriOpts { rpcInfo  = mempty { Fetch.blockNumURL = Just info }}
 
 extractCex :: VerifyResult -> Maybe (Expr End, SMTCex)
 extractCex (Cex c) = Just c
@@ -840,7 +837,7 @@ equivalenceCheck solvers sess bytecodeA bytecodeB opts calldata create = do
       conf <- readConfig
       let bytecode = if BS.null bs then BS.pack [0] else bs
       prestate <- liftIO $ stToIO $ abstractVM calldata bytecode Nothing create
-      expr <- interpret (Fetch.oracle solvers sess mempty) opts.iterConf prestate runExpr
+      expr <- interpret (Fetch.oracle solvers sess Fetch.noRpc) opts.iterConf prestate runExpr
       let simpl = if conf.simp then Expr.simplify expr else expr
       pure $ flattenExpr simpl
     oneQedOrNoQed :: EqIssues -> EqIssues

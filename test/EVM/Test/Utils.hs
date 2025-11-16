@@ -23,7 +23,7 @@ import EVM.Effects
 import Data.Maybe (fromMaybe)
 import EVM.Types (internalError)
 import System.Environment (lookupEnv)
-import EVM.Fetch (RpcInfo)
+import EVM.Fetch (RpcInfo, noRpc)
 import EVM.Fetch qualified as Fetch
 
 -- Returns tuple of (No cex, No warnings)
@@ -46,7 +46,7 @@ runForgeTestCustom testFile match timeout maxIter ffiAllowed rpcinfo = do
 runForgeTest
   :: (MonadMask m, App m)
   => FilePath -> Text -> m (Bool, Bool)
-runForgeTest testFile match = runForgeTestCustom testFile match Nothing Nothing True mempty
+runForgeTest testFile match = runForgeTestCustom testFile match Nothing Nothing True noRpc
 
 testOpts :: forall m . App m => SolverGroup -> FilePath -> Maybe BuildOutput -> Text -> Maybe Integer -> Bool -> RpcInfo -> m (UnitTestOptions)
 testOpts solvers root buildOutput match maxIter allowFFI rpcinfo = do
