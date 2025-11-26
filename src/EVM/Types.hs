@@ -231,7 +231,6 @@ data Expr (a :: EType) where
   Partial        :: [Prop] -> TraceContext -> PartialExec -> Expr End
   Failure        :: [Prop] -> TraceContext -> EvmError -> Expr End
   Success        :: [Prop] -> TraceContext -> Expr Buf -> Map (Expr EAddr) (Expr EContract) -> Expr End
-  ITE            :: Expr EWord -> Expr End -> Expr End -> Expr End
 
   -- integers
 
@@ -615,11 +614,11 @@ data Query t where
 
 -- | Execution could proceed down one of two branches
 data RunBoth where
-  PleaseRunBoth    :: Expr EWord -> (Bool -> EVM Symbolic ()) -> RunBoth
+  PleaseRunBoth    :: (Bool -> EVM Symbolic ()) -> RunBoth
 
 -- | Execution could proceed down one of several branches
 data RunAll where
-  PleaseRunAll    :: Expr EWord -> [Expr EWord] -> (Expr EWord -> EVM Symbolic ()) -> RunAll
+  PleaseRunAll    :: [Expr EWord] -> (Expr EWord -> EVM Symbolic ()) -> RunAll
 
 -- | The possible return values of a SMT query
 data BranchCondition = Case Bool | UnknownBranch
@@ -650,12 +649,12 @@ instance Show (Query t) where
 
 instance Show (RunBoth) where
   showsPrec _ = \case
-    PleaseRunBoth _ _ ->
+    PleaseRunBoth _ ->
       (("<EVM.RunBoth: system running both paths") ++)
 
 instance Show (RunAll) where
   showsPrec _ = \case
-    PleaseRunAll _ _ _ ->
+    PleaseRunAll _ _ ->
       (("<EVM.RunAll: system running all paths for Expr EWord-s") ++)
 
 -- | The possible result states of a VM

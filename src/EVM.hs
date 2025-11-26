@@ -1615,7 +1615,7 @@ onlyDeployed addrExpr fallback continue = do
     else case eqT @t @Symbolic of
       Just Refl -> do
         let deployedAddrs = map forceEAddrToEWord $ mapMaybe (codeMustExist vm) $ Map.keys vm.env.contracts
-        runAll (?conf.maxDepth) vm.exploreDepth $ PleaseRunAll addrExpr deployedAddrs runAllPaths
+        runAll (?conf.maxDepth) vm.exploreDepth $ PleaseRunAll deployedAddrs runAllPaths
       _ -> internalError "Unknown address in Concrete mode"
   where
     codeMustExist :: (VM t) -> Expr EAddr -> Maybe (Expr EAddr)
@@ -2663,14 +2663,12 @@ traceForest' :: Expr End -> Forest Trace
 traceForest' (Success _ (TraceContext f _ _) _ _) = f
 traceForest' (Partial _ (TraceContext f _ _) _) = f
 traceForest' (Failure _ (TraceContext f _ _) _) = f
-traceForest' (ITE {}) = internalError"Internal Error: ITE does not contain a trace"
 traceForest' (GVar {}) = internalError"Internal Error: Unexpected GVar"
 
 traceContext :: Expr End -> TraceContext
 traceContext (Success _ c _ _) = c
 traceContext (Partial _ c _) = c
 traceContext (Failure _ c _) = c
-traceContext (ITE {}) = internalError"Internal Error: ITE does not contain a trace"
 traceContext (GVar {}) = internalError"Internal Error: Unexpected GVar"
 
 traceTopLog :: [Expr Log] -> EVM t ()
@@ -3074,12 +3072,11 @@ instance VMOps Symbolic where
     vm <- get
     query $ PleaseAskSMT cond pathconds (runBothPaths loc vm.exploreDepth)
     where
-      condSimp = Expr.simplify cond
-      condSimpConc = Expr.concKeccakSimpExpr condSimp
       runBothPaths loc _ (Case v) = do
         assign #result Nothing
-        pushTo #constraints $ if v then Expr.simplifyProp (Lit 0 ./= condSimpConc)
-                                   else Expr.simplifyProp (Lit 0 .== condSimpConc)
+        let condSimp = Expr.simplify cond
+        pushTo #constraints $ if v then Expr.simplifyProp (Lit 0 ./= condSimp)
+                                   else Expr.simplifyProp (Lit 0 .== condSimp)
         (iteration, _) <- use (#iterations % at loc % non (0,[]))
         stack <- use (#state % #stack)
         assign (#pathsVisited % at (loc, iteration)) (Just v)
@@ -3087,7 +3084,7 @@ instance VMOps Symbolic where
         continue v
       -- Both paths are possible; we ask for more input
       runBothPaths loc exploreDepth UnknownBranch =
-        (runBoth depthLimit exploreDepth ) . PleaseRunBoth condSimp $ (runBothPaths loc exploreDepth) . Case
+        (runBoth depthLimit exploreDepth ) . PleaseRunBoth $ (runBothPaths loc exploreDepth) . Case
 
   -- numBytes allows us to specify how many bytes of the returned value is relevant
   -- if it's e.g.a JUMP, only 2 bytes can be relevant. This allows us to avoid
@@ -3106,7 +3103,7 @@ instance VMOps Symbolic where
             assign #result Nothing
             pushTo #constraints $ Expr.simplifyProp (ewordExpr .== (Lit val))
             continue $ Just val
-          _ -> runAll maxDepth vm.exploreDepth $ PleaseRunAll ewordExpr (map Lit concVals) runAllPaths
+          _ -> runAll maxDepth vm.exploreDepth $ PleaseRunAll (map Lit concVals) runAllPaths
       Nothing -> do
         assign #result Nothing
         continue Nothing

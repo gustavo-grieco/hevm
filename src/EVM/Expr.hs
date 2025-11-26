@@ -1104,11 +1104,6 @@ simplifyNoLitToKeccak e = untilFixpoint (mapExpr go) e
     go (SLT (Lit a) _) | a == maxLitSigned = Lit 0
     go (SLT a b) = slt a b
 
-    -- redundant ITE
-    go (ITE (Lit x) a b)
-      | x == 0 = b
-      | otherwise = a
-
     -- Masking as as per Solidity bit-packing of e.g. function parameters
     go (And (Lit mask1) (Or (And (Lit mask2) _) x)) | (mask1 .&. mask2 == 0)
          = And (Lit mask1) x
@@ -1255,13 +1250,6 @@ simplifyNoLitToKeccak e = untilFixpoint (mapExpr go) e
       | a == (Lit 0) = b
       | b == (Lit 0) = a
       | otherwise = EVM.Expr.or a b
-
-    -- If x is ever non zero the Or will always evaluate to some non zero value and the false branch will be unreachable
-    -- NOTE: with AND this does not work, because and(0x8, 0x4) = 0
-    go (ITE (Or (Lit x) a) t f)
-      | x == 0 = ITE a t f
-      | otherwise = t
-    go (ITE (Or a b@(Lit _)) t f) = ITE (Or b a) t f
 
     -- Double NOT is a no-op, since it's a bitwise inversion
     go (EVM.Types.Not (EVM.Types.Not a)) = a
@@ -1646,10 +1634,6 @@ max :: Expr EWord -> Expr EWord -> Expr EWord
 max (Lit 0) y = y
 max x (Lit 0) = x
 max x y = normArgs Max Prelude.max x y
-
-numBranches :: Expr End -> Int
-numBranches (ITE _ t f) = numBranches t + numBranches f
-numBranches _ = 1
 
 allLit :: [Expr Byte] -> Bool
 allLit = all isLitByte
