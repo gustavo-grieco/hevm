@@ -1753,13 +1753,31 @@ constPropagate ps =
             Nothing -> pure ()
         PNeg (PEq a b@(Lit _)) -> go $ PNeg (PEq b a)
         
-        -- inequalities
-        PLT a (Lit b) -> updateUpper a (b - 1)
-        PLT (Lit a) b -> updateLower b (a + 1)
+        -- inequalities (with overflow checks to prevent wraparound)
+        -- PLT a (Lit b) means a < b, so a <= b-1
+        PLT a (Lit b) ->
+          if b == 0
+            then modify (\s -> s { canBeSat = False, values = mempty, lowerBounds = mempty, upperBounds = mempty })
+            else updateUpper a (b - 1)
+        -- PLT (Lit a) b means a < b, so b >= a+1
+        PLT (Lit a) b ->
+          if a == maxLit
+            then modify (\s -> s { canBeSat = False, values = mempty, lowerBounds = mempty, upperBounds = mempty })
+            else updateLower b (a + 1)
+        -- PLEq a (Lit b) means a <= b
         PLEq a (Lit b) -> updateUpper a b
         PLEq (Lit a) b -> updateLower b a
-        PGT a (Lit b) -> updateLower a (b + 1)
-        PGT (Lit a) b -> updateUpper b (a - 1)
+        -- PGT a (Lit b) means a > b, so a >= b+1
+        PGT a (Lit b) ->
+          if b == maxLit
+            then modify (\s -> s { canBeSat = False, values = mempty, lowerBounds = mempty, upperBounds = mempty })
+            else updateLower a (b + 1)
+        -- PGT (Lit a) b means a > b, so b <= a-1
+        PGT (Lit a) b ->
+          if a == 0
+            then modify (\s -> s { canBeSat = False, values = mempty, lowerBounds = mempty, upperBounds = mempty })
+            else updateUpper b (a - 1)
+        -- PGEq a (Lit b) means a >= b
         PGEq a (Lit b) -> updateLower a b
         PGEq (Lit a) b -> updateUpper b a
 
