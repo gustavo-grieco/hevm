@@ -940,8 +940,8 @@ tests = testGroup "hevm"
         assertEqualM "Must not contain PBool False" False ((PBool False) `elem` propagated)
     , test "inequality-tight-bounds-violated" $ do
         let
-          -- x >= 5 && x <= 5 and x == 6 should be inconsistent
-          t = [PGEq (Var "x") (Lit 5), PLEq (Var "x") (Lit 5), PEq (Var "x") (Lit 6)]
+          -- x >= 5 && x <= 5 and x != 5 should be inconsistent
+          t = [PGEq (Var "x") (Lit 5), PLEq (Var "x") (Lit 5), PNeg (PEq (Var "x") (Lit 5))]
           propagated = Expr.constPropagate t
         assertEqualM "Must contain PBool False" True ((PBool False) `elem` propagated)
     , test "inequality-with-existing-equality-consistent" $ do
